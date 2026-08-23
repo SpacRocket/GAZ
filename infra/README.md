@@ -74,6 +74,39 @@ completes. S3 is the thing that lets you rebuild from nothing.
    a real NFS mount early — mmap-over-NFS coherency is the part of this design
    most likely to surprise you, and 3am is a bad time to find out.
 
+## Topology
+
+`infra/process.csv` is the split-host process file. Select it with
+`TORQPROCESSES`, and name the two machines:
+
+```bash
+export TORQPROCESSES=$TORQAPPHOME/infra/process.csv
+export GAZ_TP_HOST=gaz-tp        # must equal that machine's hostname
+export GAZ_HDB_HOST=gaz-hdb
+```
+
+| Machine | Processes | Mounts |
+|---|---|---|
+| `gaz-tp` | discovery, stp, rdb, wdb, sort, gateway, feed | tp log on EBS; HDB **rw** (sort only) |
+| `gaz-hdb` | hdb1, hdb2 | HDB **ro** |
+
+The host column takes `{VAR}` references, resolved from the environment by TorQ
+(`torq.q:303`) and by `bin/gaz`. A row whose host is `localhost` matches any
+machine — that is what lets `appconfig/process.csv` stay one file for local dev.
+`bin/gaz start all` only starts the rows belonging to the host it runs on; an
+explicit `bin/gaz print hdb1` still works from anywhere, for debugging.
+
+**Why the WDB and sort stay on the tickerplant box.** The WDB replays the
+tickerplant log on restart (`appconfig/settings/wdb.q` sets `replay:1b`), and
+the log is deliberately on local EBS rather than the shared filesystem. The sort
+process reads the WDB's staging directory, which is also local disk. Moving
+either one across a machine boundary means giving up log replay or putting the
+log somewhere the layout says it must not go — use a chained tickerplant instead
+if you need the RDB or WDB elsewhere.
+
+That leaves the HDB readers as the clean split: they hold no state, take no
+local disk, and reach everything else over IPC.
+
 ## Compute notes
 
 - **RDB**: memory-optimised (`r7i`, `x2idn`). Size RAM at 2–3× expected intraday

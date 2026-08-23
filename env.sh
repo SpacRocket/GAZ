@@ -37,7 +37,10 @@ export KDBHTML="$TORQHOME/html"
 export KDBLIB="$TORQHOME/lib"
 export KDBAPPCODE="$TORQAPPHOME/code"
 export KDBAPPCONFIG="$TORQAPPHOME/appconfig"
-export TORQPROCESSES="$KDBAPPCONFIG/process.csv"
+# Which process file — i.e. which deployment topology — is the one thing here
+# that an exported value must be able to override: appconfig/ for the local
+# single-host stack, docker/ for containers, infra/ for the split cloud hosts.
+export TORQPROCESSES="${TORQPROCESSES:-$KDBAPPCONFIG/process.csv}"
 export GAZ_SCHEMA="$TORQAPPHOME/database.q"
 
 # KDBTESTS must point at TorQ's tests dir: passing -test makes torq.q load

@@ -68,6 +68,15 @@ rediscovered.
 - **qsql resolves names against the root namespace at runtime**, not the `\d`
   context the file was loaded under. Inside a `select`, fully qualify:
   `.gaz.bucket[...]`, not `bucket[...]`.
+- **The `host` column in `process.csv` is how TorQ identifies a process**, and
+  it matches `.z.h` *exactly* (case-insensitively, `torq.q:421`) — a process
+  whose row says `gaz-tp` on a box where `.z.h` is `gaz-tp.internal` exits with
+  "Current host does not match host specified in". `bin/gaz` matches on the
+  short name so it stays usable on macOS (`.z.h` is `<name>.local` there), but
+  TorQ is the strict one. Check `.z.h` on the target box, not `hostname`.
+- **`TORQPROCESSES` selects the deployment topology**, so `env.sh` must not set
+  it unconditionally. It used to, which silently made the containers use
+  `appconfig/process.csv` instead of `docker/process.csv`.
 - TorQ processes redirect stdout/stderr to timestamped files in `$KDBLOG`; the
   un-suffixed `out_<proc>.log` is a symlink that can point at a stale run.
   `ls -t data/logs/out_<proc>_*.log | head -1` when a log looks empty.

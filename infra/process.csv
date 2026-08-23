@@ -1,0 +1,10 @@
+host,port,proctype,procname,U,localtime,g,T,w,load,startwithall,extras,qcmd
+{GAZ_TP_HOST},{KDBBASEPORT}+1,discovery,discovery1,,1,0,,,${KDBCODE}/processes/discovery.q,1,,q
+{GAZ_TP_HOST},{KDBBASEPORT},segmentedtickerplant,stp1,,1,0,,,${KDBCODE}/processes/segmentedtickerplant.q,1,-schemafile ${GAZ_SCHEMA} -tplogdir ${GAZ_TPLOG},q
+{GAZ_TP_HOST},{KDBBASEPORT}+2,rdb,rdb1,,1,1,180,,${KDBCODE}/processes/rdb.q,1,,q
+{GAZ_TP_HOST},{KDBBASEPORT}+5,wdb,wdb1,,1,1,,,${KDBCODE}/processes/wdb.q,1,,q
+{GAZ_TP_HOST},{KDBBASEPORT}+6,sort,sort1,,1,1,,,${KDBCODE}/processes/wdb.q,1,-s -2 -parentproctype wdb,q
+{GAZ_TP_HOST},{KDBBASEPORT}+7,gateway,gateway1,,1,1,,4000,${KDBCODE}/processes/gateway.q,1,,q
+{GAZ_TP_HOST},{KDBBASEPORT}+14,feed,feed1,,1,0,,,${KDBAPPCODE}/tick/feed.q,1,,q
+{GAZ_HDB_HOST},{KDBBASEPORT}+3,hdb,hdb1,,1,1,60,4000,${GAZ_HDB},1,,q
+{GAZ_HDB_HOST},{KDBBASEPORT}+4,hdb,hdb2,,1,1,60,4000,${GAZ_HDB},1,,q

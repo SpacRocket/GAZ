@@ -36,11 +36,33 @@ field() {
 # not installed on macOS by default.
 expand() { eval "printf '%s' \"$1\""; }
 
+# The host column decides which machine a process belongs to. `localhost`
+# matches everywhere, which is what lets the local stack stay one file, and
+# `{VAR}` resolves from the environment (TorQ's own syntax — torq.q:303).
+# Without this filter `start all` would start the whole stack on every host.
+GAZ_HOSTNAME="$(hostname -s 2>/dev/null || hostname)"
+
 procnames() {
-  awk -F, -v all="$1" 'NR>1 && NF>1 { if (all!=1 || $11==1) print $4 }' "$CSV"
+  awk -F, -v all="$1" -v me="$GAZ_HOSTNAME" '
+    function hostof(h,   n) {
+      if (h ~ /^\{.*\}$/) { n = substr(h, 2, length(h)-2); return ENVIRON[n] }
+      return h
+    }
+    # Compare on the short name, lowercased: .z.h may carry a domain suffix
+    # (macOS reports <name>.local) that the process file will not have.
+    function short(x) { sub(/\..*$/, "", x); return tolower(x) }
+    NR>1 && NF>1 {
+      h = hostof($1)
+      if (h != "localhost" && short(h) != short(me)) next
+      if (all!=1 || $11==1) print $4
+    }' "$CSV"
 }
 
-exists() { procnames 0 | grep -qx "$1"; }
+# Every row, whatever the host. An explicit `print hdb1` should work from any
+# machine — only `all` is scoped to the host you are standing on.
+allprocnames() { awk -F, 'NR>1 && NF>1 { print $4 }' "$CSV"; }
+
+exists() { allprocnames | grep -qx "$1"; }
 
 # Ports are written as {KDBBASEPORT}+n so the whole stack relocates together.
 port() {
