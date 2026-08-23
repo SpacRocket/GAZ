@@ -1,0 +1,13 @@
+# Local data — the cloud equivalents live on FSx / EBS, never in git
+data/
+
+# Machine-specific environment overrides (QHOME, ports, mount points)
+env.local.sh
+
+# k4unit artefacts
+KUTR.csv
+tests/results/
+
+# q / editor
+*.log
+.DS_Store

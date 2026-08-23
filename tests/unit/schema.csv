@@ -1,0 +1,11 @@
+action,ms,bytes,lang,code,repeat,minver,comment
+true,0,0,q,cols[`trade]~`time`sym`price`size`side`ex`cond`src,1,,trade column set is what downstream consumers expect
+true,0,0,q,cols[`quote]~`time`sym`bid`ask`bsize`asize`ex`src,1,,quote column set
+true,0,0,q,(first exec t from meta[`trade] where c=`time)="p",1,,time is a timestamp - the tickerplant stamps it
+true,0,0,q,(first exec t from meta[`quote] where c=`time)="p",1,,quote time is a timestamp
+true,0,0,q,`g~first exec a from meta[`trade] where c=`sym,1,,trade sym carries the grouped attribute
+true,0,0,q,`g~first exec a from meta[`quote] where c=`sym,1,,quote sym carries the grouped attribute
+true,0,0,q,.t.sametype[trade;.t.trades],1,,test fixture has not drifted from the shipped trade schema
+true,0,0,q,.t.sametype[quote;.t.quotes],1,,test fixture has not drifted from the shipped quote schema
+true,0,0,q,0=count trade,1,,schema file defines empty tables only
+true,0,0,q,0=count quote,1,,schema file defines empty tables only

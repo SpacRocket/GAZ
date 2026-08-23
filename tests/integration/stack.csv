@@ -1,0 +1,10 @@
+action,ms,bytes,lang,code,repeat,minver,comment
+before,0,0,q,.servers.startupdepcycles[`rdb`hdb`gateway;2;15],1,,wait up to 30s for the stack - bounded so a broken stack fails instead of hanging
+true,0,0,q,.t.up`rdb,1,,rdb is reachable through discovery
+true,0,0,q,.t.up`hdb,1,,hdb is reachable through discovery
+true,0,0,q,.t.up`gateway,1,,gateway is reachable through discovery
+true,0,0,q,.t.hastables`rdb,1,,rdb carries the schema from database.q
+true,0,0,q,.t.until[30;{0<.t.rows[`rdb;`trade]}],1,,feed reaches the rdb via the tickerplant within 30s
+true,0,0,q,.t.until[30;{0<.t.rows[`rdb;`quote]}],1,,quotes reach the rdb
+true,0,0,q,0<count key hsym`$getenv`GAZ_TPLOG,1,,tickerplant is writing a recovery log
+true,0,0,q,all .gaz.validtrade .t.ask[`rdb;"select from trade"],1,,nothing invalid got past the feed into the rdb

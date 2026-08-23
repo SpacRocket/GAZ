@@ -1,0 +1,90 @@
+# gaz — working notes for Claude Code
+
+kdb+ tick stack on TorQ (vendored submodule at `vendor/TorQ`). Designed so the
+local stack and the AWS deployment are the same code with different env vars.
+
+## Commands
+
+```bash
+make bootstrap        # submodule init + data dirs
+make test             # unit suite, no stack needed. Exits non-zero on failure
+make test-integration # starts stack, tests, tears down (trap on EXIT)
+make start / stop / restart / status
+make start P=rdb1     # single process
+bin/gaz print <proc>  # show the generated q command line — first debugging step
+bin/gaz tail <proc>
+```
+
+Query the gateway on port 6007. Base port is `KDBBASEPORT` (6000); every
+process is `{KDBBASEPORT}+n` so the stack relocates as a unit.
+
+## Environment
+
+`env.sh` is the single source of truth for paths — nothing under `code/` or
+`appconfig/` hardcodes one. Machine-specific overrides go in `env.local.sh`
+(gitignored). `QHOME` defaults to `~/Applications/q`.
+
+`TORQHOME` = the framework, `TORQAPPHOME` = this repo. Config layers as
+`$KDBCONFIG/settings/{default,proctype,procname}.q` then the same under
+`$KDBAPPCONFIG/settings/`, later overriding earlier.
+
+`$KDBAPPCODE/common/` is auto-loaded into **every** process — that is how
+`code/common/gaz.q` reaches the feed, rdb, hdb and gateway without being
+listed anywhere.
+
+## Gotchas found the hard way
+
+These are all encoded in the code with comments; listed here so they are not
+rediscovered.
+
+- **The tickerplant prepends its own `time` column** (`stplog.q:53`). A feed
+  that publishes `time` sends one column too many and the STP rejects the
+  batch with `Bad message received, error: length`. `code/tick/feed.q`
+  generates time locally for validation, then strips it on publish.
+- **TorQ's `torq.sh` does not run on macOS** — it uses `hostname -I`,
+  `hostname -A` and `envsubst`, all GNU-only. `bin/gaz` is a portable
+  replacement building the identical command line.
+- **Do not disable `.timer`.** `subscriptions.q:174` treats a non-zero
+  `.sub.checksubscriptionperiod` with the timer off as a *fatal* init error.
+  TorQ's own tickerplant config trips this; `appconfig/settings/segmentedtickerplant.q`
+  fixes it by zeroing the subscription check instead.
+- **A feed needs `.servers.CONNECTIONS`.** Without it `.servers.startup[]`
+  dials nothing and `startupdepcycles` blocks forever — the process looks
+  alive and publishes nothing. Same trap caught the integration test proc,
+  which is why `itest` is a separate proctype from `test` rather than a
+  command-line override: `.servers` has four interlocking flags.
+- **Never pass `0W` as the cycle count** to `startupdepcycles` in a test. Bound
+  it so a broken stack fails loudly instead of hanging CI.
+- **k4unit CSV: never start a `code` field with `"`** — q's CSV reader eats the
+  quote. Flip the comparison: `(first exec t from meta[x] where c=`time)="p"`.
+- **Never compare floats with `=` in tests.** Use `.t.eqf` (1e-9 tolerance).
+- **Parenthesise a cast on the left of `~`.** `` `date$()~f[x] `` parses right to
+  left as `` `date$(()~f[x]) `` — it casts a boolean to a date and yields
+  `2000.01.01`, so a `true` row reports as an *error*, not a failure. Write
+  `` (`date$())~f[x] ``.
+- **Don't assert against `GAZ_TPLOG`/`GAZ_HDB` for "empty directory" cases.**
+  Both hold files once the stack has run, so the test passes only on a fresh
+  checkout. Use `.t.emptydir` (a path that cannot exist).
+- **qsql resolves names against the root namespace at runtime**, not the `\d`
+  context the file was loaded under. Inside a `select`, fully qualify:
+  `.gaz.bucket[...]`, not `bucket[...]`.
+- TorQ processes redirect stdout/stderr to timestamped files in `$KDBLOG`; the
+  un-suffixed `out_<proc>.log` is a symlink that can point at a stale run.
+  `ls -t data/logs/out_<proc>_*.log | head -1` when a log looks empty.
+
+## Testing
+
+k4unit ships inside TorQ (`vendor/TorQ/tests/k4unit.q`). `KDBTESTS` must point
+at **TorQ's** tests dir — `-test` makes `torq.q:708` load the framework from
+there. Our CSVs live in `GAZ_TESTS` and are named by `-test`.
+
+Assertions needing quotes, commas or multiple statements go in
+`tests/helpers.q` as named functions, called from the CSV.
+
+`test` proctype = isolated (discovery off), `itest` = connected to the stack.
+
+## Cloud
+
+`infra/README.md` holds the AWS storage decisions and the reasoning. The two
+rules the design depends on: the tickerplant log never goes on the shared
+filesystem, and only the sort process mounts the HDB read-write.

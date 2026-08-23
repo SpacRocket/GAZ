@@ -1,0 +1,3 @@
+[submodule "vendor/TorQ"]
+	path = vendor/TorQ
+	url = https://github.com/DataIntellectTech/TorQ.git

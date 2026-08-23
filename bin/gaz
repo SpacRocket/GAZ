@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+# gaz process launcher
+#
+# A portable stand-in for TorQ's torq.sh, which relies on `hostname -I`,
+# `hostname -A` and `envsubst` — all GNU/Linux-only, so it does not run on
+# macOS. This builds the identical q command line from appconfig/process.csv
+# using only POSIX tools, so the same script drives local dev and cloud hosts.
+#
+#   bin/gaz start [proc|all]     bin/gaz status
+#   bin/gaz stop  [proc|all]     bin/gaz debug <proc>    # foreground, interactive
+#   bin/gaz restart [proc|all]   bin/gaz run   <proc>    # foreground, for a container
+#   bin/gaz qcon  <proc>         bin/gaz print <proc>    # show the command line
+#   bin/gaz tail  <proc>
+# ---------------------------------------------------------------------------
+set -euo pipefail
+
+GAZ_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../env.sh
+. "$GAZ_BIN/../env.sh"
+
+CSV="$TORQPROCESSES"
+[ -f "$CSV" ] || { echo "no process file: $CSV" >&2; exit 1; }
+
+# --- csv helpers ---------------------------------------------------------
+
+# field <procname> <column> -> raw value
+field() {
+  awk -F, -v want="$1" -v col="$2" '
+    NR==1 { for (i=1;i<=NF;i++) if ($i==col) c=i; next }
+    $4==want { print (c ? $c : ""); exit }
+  ' "$CSV"
+}
+
+# Expand ${VAR} references from the environment. Replaces envsubst, which is
+# not installed on macOS by default.
+expand() { eval "printf '%s' \"$1\""; }
+
+procnames() {
+  awk -F, -v all="$1" 'NR>1 && NF>1 { if (all!=1 || $11==1) print $4 }' "$CSV"
+}
+
+exists() { procnames 0 | grep -qx "$1"; }
+
+# Ports are written as {KDBBASEPORT}+n so the whole stack relocates together.
+port() {
+  local raw; raw="$(field "$1" port)"
+  raw="${raw//\{KDBBASEPORT\}/$KDBBASEPORT}"
+  echo $(( raw ))
+}
+
+# --- command line --------------------------------------------------------
+
+startline() {
+  local name="$1" line val
+  line="$QCMD $TORQHOME/torq.q -stackid $KDBBASEPORT"
+  line="$line -proctype $(field "$name" proctype) -procname $name"
+
+  for p in U localtime g T w load; do
+    val="$(expand "$(field "$name" "$p")")"
+    # 0 for localtime means "use GMT", i.e. omit the flag entirely
+    if [ -n "$val" ] && ! { [ "$p" = localtime ] && [ "$val" = 0 ]; }; then
+      line="$line -$p $val"
+    fi
+  done
+
+  line="$line $(expand "$(field "$name" extras)") -procfile $CSV"
+  echo "$line"
+}
+
+pidof_proc() {
+  pgrep -f -- "-stackid $KDBBASEPORT -proctype $(field "$1" proctype) -procname $1 " 2>/dev/null || true
+}
+
+# --- commands ------------------------------------------------------------
+
+do_start() {
+  local name="$1"
+  if [ -n "$(pidof_proc "$name")" ]; then
+    printf '  %-12s already running\n' "$name"; return
+  fi
+  local log="$KDBLOG/gaz_$name.log"
+  # shellcheck disable=SC2086
+  nohup $(startline "$name") </dev/null >"$log" 2>&1 &
+  printf '  %-12s started on port %s\n' "$name" "$(port "$name")"
+}
+
+do_stop() {
+  local name="$1" pids
+  pids="$(pidof_proc "$name")"
+  if [ -z "$pids" ]; then printf '  %-12s not running\n' "$name"; return; fi
+  # shellcheck disable=SC2086
+  kill $pids 2>/dev/null || true
+  printf '  %-12s stopped\n' "$name"
+}
+
+do_status() {
+  printf '%-14s %-26s %-8s %s\n' PROCESS TYPE PORT PID
+  local pid
+  while read -r name; do
+    pid="$(pidof_proc "$name" | tr '\n' ' ')"
+    printf '%-14s %-26s %-8s %s\n' \
+      "$name" "$(field "$name" proctype)" "$(port "$name")" "${pid:-—}"
+  done < <(procnames 0)
+}
+
+# Resolve "all" (respecting the startwithall column) or a single name.
+targets() {
+  if [ "$1" = all ]; then procnames 1
+  elif exists "$1"; then echo "$1"
+  else echo "unknown process: $1" >&2; exit 1; fi
+}
+
+cmd="${1:-status}"; arg="${2:-all}"
+case "$cmd" in
+  start)   echo "starting gaz (base port $KDBBASEPORT)";
+           while read -r n; do do_start "$n"; done < <(targets "$arg") ;;
+  stop)    while read -r n; do do_stop  "$n"; done < <(targets "$arg") ;;
+  restart) "$0" stop "$arg"; sleep 1; "$0" start "$arg" ;;
+  status)  do_status ;;
+  print)   startline "$arg" ;;
+  debug)   exists "$arg" || { echo "unknown process: $arg" >&2; exit 1; }
+           # shellcheck disable=SC2086
+           exec $(startline "$arg") -debug ;;
+  # Foreground, logs on stdout, .z.pi left intact: the mode a container wants.
+  # `debug` is the wrong choice for PID 1 — it also resets the input handler.
+  run)     exists "$arg" || { echo "unknown process: $arg" >&2; exit 1; }
+           # shellcheck disable=SC2086
+           exec $(startline "$arg") -noredirect ;;
+  qcon)    exec "${QCON:-qcon}" ":$(port "$arg")" ;;
+  tail)    exec tail -f "$KDBLOG/gaz_$arg.log" ;;
+  *)       sed -n '3,17p' "$0" | sed 's|^# \?||'; exit 1 ;;
+esac

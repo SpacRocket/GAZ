@@ -1,0 +1,26 @@
+action,ms,bytes,lang,code,repeat,minver,comment
+true,0,0,q,.t.eqf[.gaz.mid[10f;20f];15f],1,,mid of a bid/ask pair
+true,0,0,q,.t.eqf[.gaz.mid[99.5 49.5;100.5 50.5];100 50f],1,,mid vectorises
+true,0,0,q,.t.eqf[.gaz.spread[99.5;100.5];1f],1,,absolute spread
+true,0,0,q,.t.eqf[.gaz.spreadbps[99.5;100.5];100f],1,,spread in bps of the mid
+true,0,0,q,null .gaz.spreadbps[-1f;1f],1,,zero mid yields null not infinity
+true,0,0,q,.t.eqf[.gaz.vwap[100 102 104f;100 200 100i];102f],1,,volume weighted average price
+true,0,0,q,null .gaz.vwap[0#0f;0#0i],1,,vwap of nothing is null not a divide by zero
+true,0,0,q,null .gaz.vwap[100 200f;0 0i],1,,vwap with zero total size is null
+true,0,0,q,.t.eqf[.gaz.rnd[2;1.2345];1.23f],1,,round to 2dp
+true,0,0,q,.gaz.bucket[0D00:05;2026.08.10D09:32:00.000000000]=2026.08.10D09:30:00.000000000,1,,timestamps floor into buckets
+true,0,0,q,2=count .gaz.ohlc[0D01;.t.trades],1,,ohlc returns one row per sym per bucket
+true,0,0,q,.t.eqf[exec vwap from .gaz.ohlc[0D01;.t.trades];102 52f],1,,ohlc vwap matches hand calculation
+true,0,0,q,.t.eqf[exec high from .gaz.ohlc[0D01;.t.trades];104 54f],1,,ohlc high
+true,0,0,q,.t.eqf[exec low from .gaz.ohlc[0D01;.t.trades];100 50f],1,,ohlc low
+true,0,0,q,.t.eqf[exec volume from .gaz.ohlc[0D01;.t.trades];400 800f],1,,ohlc volume
+true,0,0,q,all .gaz.validtrade .t.trades,1,,sample trades pass validation
+true,0,0,q,not any .gaz.validtrade update price:0f from .t.trades,1,,zero price is rejected
+true,0,0,q,not any .gaz.validtrade update size:0i from .t.trades,1,,zero size is rejected
+true,0,0,q,not any .gaz.validtrade update sym:0N from .t.trades,1,,null sym is rejected
+true,0,0,q,all .gaz.validquote .t.quotes,1,,sample quotes pass validation
+true,0,0,q,not any .gaz.validquote update bid:200f from .t.quotes,1,,crossed quote is rejected
+true,0,0,q,0=count .gaz.hdbdates .t.emptydir,1,,hdbdates on a directory that has never been written to
+true,0,0,q,0=count .gaz.hdbdates hsym`$getenv`GAZ_TPLOG,1,,hdbdates drops non-partition names - a tplog dir has no dates in it whether or not the stack has run
+true,0,0,q,(`date$())~.gaz.hdbdates .t.emptydir,1,,empty result is typed as a date list not an untyped () - parens matter, `date$()~x parses as `date$(()~x)
+fail,0,0,q,.gaz.mid[1f;2f;3f],1,,mid is rank 2
