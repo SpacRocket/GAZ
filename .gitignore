@@ -1,6 +1,10 @@
 # Local data — the cloud equivalents live on FSx / EBS, never in git
 data/
 
+# Linux kdb+ builds used by the docker image. Licensed KX binaries —
+# staged locally, never committed. See docker/Dockerfile.
+kdb/
+
 # Machine-specific environment overrides (QHOME, ports, mount points)
 env.local.sh
 

@@ -1,0 +1,11 @@
+# The build context is the repo root (docker-compose.yml sets context: ..).
+# Keep local runtime state out of it — the container gets its data from mounted
+# volumes, never from the image.
+data/
+.git/
+vendor/TorQ/.git/
+*.log
+.DS_Store
+env.local.sh
+tests/results/
+KUTR.csv

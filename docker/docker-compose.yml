@@ -6,9 +6,9 @@
 # the discovery service through that same file — with `localhost` in a
 # container, each process would look for its peers inside itself.
 #
-# Build first (kdb+ is not in the image — see Dockerfile):
-#   mkdir -p docker/q && cp -r $QHOME/l64 $QHOME/q.k docker/q/
+# Build (the Linux kdb+ builds come from kdb/ at the repo root — see Dockerfile):
 #   docker compose -f docker/docker-compose.yml build
+#   docker compose -f docker/docker-compose.yml up -d
 
 x-gaz: &gaz
   build:

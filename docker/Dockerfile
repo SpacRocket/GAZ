@@ -3,10 +3,16 @@
 #      column name differing only in case breaks in production and nowhere else.
 #   2. It is the same image you deploy, so "works locally" means something.
 #
-# kdb+ is licensed software and is NOT baked in. Before building:
-#   mkdir -p docker/q && cp -r $QHOME/l64 $QHOME/q.k docker/q/
-# and mount the license at runtime (see docker-compose.yml) rather than
-# copying it into a layer.
+# The Linux kdb+ builds live in kdb/ at the repo root, one directory per
+# architecture. The right one is picked from BuildKit's TARGETARCH, so this
+# builds natively on an M-series Mac and on an x86 runner without edits:
+#
+#   docker compose -f docker/docker-compose.yml build                  # native
+#   docker compose -f docker/docker-compose.yml build \
+#     --build-arg TARGETARCH=amd64                                     # forced
+#
+# kdb+ is licensed software. The binary is baked in; the LICENCE IS NOT —
+# kc.lic/k4.lic is mounted at runtime, see docker-compose.yml.
 
 FROM debian:12-slim
 
@@ -21,8 +27,25 @@ ARG GAZ_UID=6000
 RUN groupadd -g ${GAZ_UID} gaz && useradd -u ${GAZ_UID} -g gaz -m -s /bin/bash gaz
 
 ENV QHOME=/opt/q
-COPY docker/q/ ${QHOME}/
-RUN ln -s ${QHOME}/l64/q /usr/local/bin/q && chmod +x ${QHOME}/l64/q
+
+# TARGETARCH is supplied by BuildKit (amd64 | arm64). Both builds are copied in
+# and the unused one dropped in the same layer — they are under a megabyte each,
+# and this keeps the selection logic in one place.
+ARG TARGETARCH
+COPY kdb/ /tmp/kdb/
+RUN set -eu; \
+    case "${TARGETARCH:-amd64}" in \
+      amd64) qarch=l64    ;; \
+      arm64) qarch=l64arm ;; \
+      *) echo "no kdb+ build bundled for TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    test -x "/tmp/kdb/${qarch}/${qarch}/q" \
+      || { echo "expected kdb/${qarch}/${qarch}/q in the build context" >&2; exit 1; }; \
+    mkdir -p "${QHOME}"; \
+    cp -r "/tmp/kdb/${qarch}/." "${QHOME}/"; \
+    chmod +x "${QHOME}/${qarch}/q"; \
+    ln -s "${QHOME}/${qarch}/q" /usr/local/bin/q; \
+    rm -rf /tmp/kdb
 
 WORKDIR /app
 COPY --chown=gaz:gaz . /app
