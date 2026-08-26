@@ -9,7 +9,7 @@
 #
 #   bin/gaz start [proc|all]     bin/gaz status
 #   bin/gaz stop  [proc|all]     bin/gaz debug <proc>    # foreground, interactive
-#   bin/gaz restart [proc|all]   bin/gaz run   <proc>    # foreground, for a container
+#   bin/gaz restart [proc|all]   bin/gaz run <proc...> [--sidecar <cmd>]...
 #   bin/gaz qcon  <proc>         bin/gaz print <proc>    # show the command line
 #   bin/gaz tail  <proc>
 # ---------------------------------------------------------------------------
@@ -126,6 +126,37 @@ do_status() {
   done < <(procnames 0)
 }
 
+# Keep a secondary process alive inside a shared container. Co-tenants are not
+# allowed to end the container: a line handler that dies from a bad parse or a
+# dropped exchange session must not take the tickerplant down with it. Only the
+# primary decides the container's fate, which is what compose's `restart:` acts
+# on.
+supervise() {
+  local name="$1"
+  while :; do
+    # shellcheck disable=SC2086
+    $(startline "$name") -noredirect &
+    wait $! || true
+    echo "gaz: $name exited, restarting in 5s" >&2
+    sleep 5
+  done
+}
+
+# Same restart contract for a co-tenant that is not a q process at all — a
+# Python line handler, say. It gets no process.csv row on purpose: startline
+# builds `q torq.q ...` for every row, and a non-TorQ process has no proctype,
+# no config layering and no -procfile, so every column but the name would be
+# dead. Address the tickerplant on localhost: they share the container.
+supervisecmd() {
+  local cmd="$1"
+  while :; do
+    ( eval "$cmd" ) &
+    wait $! || true
+    echo "gaz: sidecar exited, restarting in 5s: $cmd" >&2
+    sleep 5
+  done
+}
+
 # Resolve "all" (respecting the startwithall column) or a single name.
 targets() {
   if [ "$1" = all ]; then procnames 1
@@ -146,9 +177,36 @@ case "$cmd" in
            exec $(startline "$arg") -debug ;;
   # Foreground, logs on stdout, .z.pi left intact: the mode a container wants.
   # `debug` is the wrong choice for PID 1 — it also resets the input handler.
-  run)     exists "$arg" || { echo "unknown process: $arg" >&2; exit 1; }
+  # One name: q is PID 1, the simple case, unchanged. Several: the FIRST is the
+  # primary and the others are supervised alongside it. Separate processes, one
+  # container — run it with `init: true` so the shell is not left reaping.
+  run)     shift || true
+           [ "$#" -ge 1 ] || { echo "usage: gaz run <proc...>" >&2; exit 1; }
+           procs=(); sidecars=()
+           while [ "$#" -gt 0 ]; do
+             case "$1" in
+               --sidecar) [ -n "${2:-}" ] || { echo "--sidecar needs a command" >&2; exit 1; }
+                          sidecars+=("$2"); shift 2 ;;
+               *)         exists "$1" || { echo "unknown process: $1" >&2; exit 1; }
+                          procs+=("$1"); shift ;;
+             esac
+           done
+           [ "${#procs[@]}" -ge 1 ] || { echo "usage: gaz run <proc...>" >&2; exit 1; }
+           if [ "${#procs[@]}" -eq 1 ] && [ "${#sidecars[@]}" -eq 0 ]; then
+             # shellcheck disable=SC2086
+             exec $(startline "${procs[0]}") -noredirect
+           fi
+           set -- "${procs[@]}"
+           primary="$1"; shift
+           for n in "$@"; do supervise "$n" & done
+           for c in ${sidecars[@]+"${sidecars[@]}"}; do supervisecmd "$c" & done
+           trap 'trap - TERM INT; kill 0' TERM INT
            # shellcheck disable=SC2086
-           exec $(startline "$arg") -noredirect ;;
+           $(startline "$primary") -noredirect &
+           primary_pid=$!
+           wait "$primary_pid"; rc=$?
+           kill 0 2>/dev/null || true
+           exit "$rc" ;;
   qcon)    exec "${QCON:-qcon}" ":$(port "$arg")" ;;
   tail)    exec tail -f "$KDBLOG/gaz_$arg.log" ;;
   *)       sed -n '3,17p' "$0" | sed 's|^# \?||'; exit 1 ;;

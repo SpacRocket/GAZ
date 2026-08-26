@@ -7,4 +7,3 @@ hdb2,{KDBBASEPORT}+4,hdb,hdb2,,1,1,60,4000,${GAZ_HDB},1,,q
 wdb,{KDBBASEPORT}+5,wdb,wdb1,,1,1,,,${KDBCODE}/processes/wdb.q,1,,q
 sort,{KDBBASEPORT}+6,sort,sort1,,1,1,,,${KDBCODE}/processes/wdb.q,1,-s -2 -parentproctype wdb,q
 gateway,{KDBBASEPORT}+7,gateway,gateway1,,1,1,,4000,${KDBCODE}/processes/gateway.q,1,,q
-feed,{KDBBASEPORT}+14,feed,feed1,,1,0,,,${KDBAPPCODE}/tick/feed.q,1,,q

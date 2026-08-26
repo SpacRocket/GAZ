@@ -6,7 +6,12 @@
 # the discovery service through that same file — with `localhost` in a
 # container, each process would look for its peers inside itself.
 #
-# Build (the Linux kdb+ builds come from kdb/ at the repo root — see Dockerfile):
+# Hence `hostname:` on every service. Docker defaults a container's hostname to
+# its container ID, which matches no row, and TorQ exits with "Current host does
+# not match host specified in". The value must equal the host column exactly.
+#
+# Build (the image installs KDB-X from KX's portal — see Dockerfile):
+#   export KX_B64_LIC=$(base64 < ~/Applications/q/kc.lic | tr -d '\n')
 #   docker compose -f docker/docker-compose.yml build
 #   docker compose -f docker/docker-compose.yml up -d
 
@@ -14,6 +19,12 @@ x-gaz: &gaz
   build:
     context: ..
     dockerfile: docker/Dockerfile
+    # The KDB-X installer refuses -y without a licence. Passed as a build
+    # secret so it never lands in a layer or in git; the image deletes the
+    # kc.lic the installer writes and uses the runtime mount below instead.
+    #   export KX_B64_LIC=$(base64 < ~/Applications/q/kc.lic | tr -d '\n')
+    secrets:
+      - kxlic
   environment: &gazenv
     TORQPROCESSES: /app/docker/process.csv
     KDBBASEPORT: 6000
@@ -31,11 +42,22 @@ x-gaz: &gaz
 services:
   discovery:
     <<: *gaz
+    hostname: discovery
     command: ["run", "discovery1"]
 
+  # The tickerplant and its line handler: separate q processes, one container.
+  # They share a hostname, which is why both rows in process.csv carry host
+  # `stp` — TorQ matches that column against .z.h and exits if it differs.
+  #
+  # stp1 is the primary: the container lives and dies with the tickerplant, so
+  # compose's `restart:` acts on it. feed1 is supervised alongside and restarts
+  # in place, so a bad parse or a dropped exchange session never bounces the tp.
+  # `init:` gives PID 1 a real reaper, since the entrypoint is now a shell.
   stp:
     <<: *gaz
-    command: ["run", "stp1"]
+    hostname: stp
+    init: true
+    command: ["run", "stp1", "--sidecar", "python3 /app/code/tick/feed.py"]
     depends_on: [discovery]
     volumes:
       - hdb:/fsx/hdb
@@ -46,8 +68,15 @@ services:
 
   rdb:
     <<: *gaz
+    hostname: rdb
     command: ["run", "rdb1"]
     depends_on: [stp]
+    # Dev convenience: query the RDB straight from the host with a local q.
+    # The gateway on 6007 is the real client entry point — this is for poking
+    # at intraday state directly. Note it collides with the local stack, which
+    # uses the same {KDBBASEPORT}+n range, so don't run both at once.
+    ports:
+      - "6002:6002"
     volumes:
       - hdb:/fsx/hdb
       - ${QLIC:-${HOME}/Applications/q}:/etc/kdb:ro
@@ -55,6 +84,7 @@ services:
 
   wdb:
     <<: *gaz
+    hostname: wdb
     command: ["run", "wdb1"]
     depends_on: [stp]
     volumes:
@@ -65,6 +95,7 @@ services:
 
   sort:
     <<: *gaz
+    hostname: sort
     command: ["run", "sort1"]
     depends_on: [wdb]
     volumes:
@@ -77,6 +108,7 @@ services:
 
   hdb1: &hdb
     <<: *gaz
+    hostname: hdb1
     command: ["run", "hdb1"]
     depends_on: [discovery]
     volumes:
@@ -85,21 +117,22 @@ services:
 
   hdb2:
     <<: *hdb
+    hostname: hdb2
     command: ["run", "hdb2"]
 
   gateway:
     <<: *gaz
+    hostname: gateway
     command: ["run", "gateway1"]
     depends_on: [rdb, hdb1]
     ports:
       - "6007:6007"     # the only port worth exposing to clients
 
-  feed:
-    <<: *gaz
-    command: ["run", "feed1"]
-    depends_on: [stp]
-
 volumes:
   hdb:
   wdb:
   tplog:
+
+secrets:
+  kxlic:
+    environment: KX_B64_LIC
