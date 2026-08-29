@@ -7,16 +7,6 @@
 
 \d .gaz
 
-// --- reference data ------------------------------------------------------
-syms:`AAPL`MSFT`GOOG`AMZN`NVDA`META`TSLA`AMD`INTC`IBM
-
-// Seed prices, used by the feed and by tests that need a deterministic base.
-refprice:syms!33 27 84 12 20 72 36 51 42 29f
-
-exchanges:"NLOB"          // NYSE, Nasdaq, other, BATS
-sources  :`BARX`GETGO`SUN`DB
-sides    :`buy`sell
-
 // --- pricing -------------------------------------------------------------
 
 // Mid price from a bid/ask pair. Vector-friendly.
@@ -40,29 +30,6 @@ rnd:{[n;x] m:"f"$prd n#10; (floor 0.5+x*m)%m}
 // Round timestamps down into buckets of width `w` (a timespan).
 // e.g. bucket[0D00:05;t] -> five minute bars
 bucket:{[w;t] `timestamp$w xbar `long$t}
-
-// OHLC bars over a trade table, bucketed by `w`.
-// Returns a keyed table on (sym;time).
-//
-// The names inside a qsql expression are resolved against the root namespace
-// at runtime, NOT against the \d context this file was loaded under — so
-// `bucket` and `vwap` must be fully qualified here even though they are
-// defined two lines up.
-ohlc:{[w;t]
-  select open:first price, high:max price, low:min price, close:last price,
-         volume:sum size, vwap:.gaz.vwap[price;size]
-    by sym, time:.gaz.bucket[w;time] from t }
-
-// --- validation ----------------------------------------------------------
-// Used by the feed before publishing and available to a data-quality process.
-// Returns a boolean vector, one per row.
-
-validtrade:{[t]
-  (not null t`time) and (not null t`sym) and (t[`price]>0f) and t[`size]>0i }
-
-validquote:{[q]
-  (not null q`time) and (not null q`sym) and (q[`bid]<=q`ask)
-    and (q[`bid]>0f) and q[`asize]>=0j }
 
 // --- partitions ----------------------------------------------------------
 

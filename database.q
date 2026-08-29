@@ -3,35 +3,14 @@
 // Loaded by the segmented tickerplant via -schemafile, and by the unit tests.
 // Every downstream process (rdb, wdb, hdb, feed) inherits its shape from here,
 // so a column added below propagates without touching another file.
-//
-// `g# on sym is what makes `select from trade where sym=`X` fast in the RDB.
 
-trade:([]
-  time  :`timestamp$();
-  sym   :`g#`symbol$();
-  price :`float$();
-  size  :`int$();
-  side  :`symbol$();
-  ex    :`char$();
-  cond  :`char$();
-  src   :`symbol$() )
-
-quote:([]
-  time  :`timestamp$();
-  sym   :`g#`symbol$();
-  bid   :`float$();
-  ask   :`float$();
-  bsize :`long$();
-  asize :`long$();
-  ex    :`char$();
-  src   :`symbol$() )
-
-// --- CCGT: the three legs of the clean spark spread ----------------------
+// --- the three legs of the clean spark spread ---------------------------
 //
 // Power, gas and carbon arrive asynchronously and at different cadences —
 // that asymmetry is the point. The spread is computed by as-of joining the
 // latest gas and carbon onto each power tick, so every table needs `time`
-// (stamped by the tickerplant) and the `g#` attribute on its key column.
+// (stamped by the tickerplant) and the `g#` attribute on its key column —
+// that attribute is what keeps `where zone=`X` fast in the RDB.
 //
 // Prices are all EUR but the units differ and do not cancel: power and gas
 // are per MWh, carbon is per tonne CO2. The spread calculation converts via

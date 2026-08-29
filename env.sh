@@ -92,3 +92,19 @@ if [ -f "$GAZ_ROOT/env.local.sh" ]; then
 fi
 
 mkdir -p "$GAZ_HDB" "$GAZ_WDB" "$GAZ_TPLOG" "$KDBLOG"
+
+# --- interactive helpers -------------------------------------------------
+# Defined here so they exist in any shell that has sourced this file, and in
+# every container (bin/gaz sources env.sh on every invocation).
+#
+# bin/gaz resolves the host and port from the process file, so the same call
+# works on the local stack and inside a container, where the peer is a service
+# name rather than localhost.
+#
+#   qcon rdb1     remote console on another process
+#   tq            interactive q that is itself a TorQ process on the stack
+#
+# There is no qcon binary in KDB-X 5.0; bin/gaz drives code/tools/rconsole.q
+# instead. If you install a real one, point QCON at it and bin/gaz execs that.
+qcon() { "$GAZ_ROOT/bin/gaz" qcon "$@"; }
+tq()   { "$GAZ_ROOT/bin/gaz" repl "$@"; }

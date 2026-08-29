@@ -50,7 +50,10 @@ test-integration: ## Start the stack, run integration tests, tear it down
 	  sleep 10; \
 	  $(TORQ_TEST) -proctype itest -procname itest1 -test $$GAZ_TESTS/integration
 
-repl: ## Interactive q with the app library and schema loaded
+repl: ## Interactive q as a TorQ process, connected to the running stack
+	@$(E) bin/gaz repl itest1
+
+repl-isolated: ## Interactive q with no stack needed (discovery off)
 	@$(E) rlwrap -A $$QCMD $$TORQHOME/torq.q -proctype test -procname test1 \
 	  -procfile $$TORQPROCESSES -load $$GAZ_TESTS/helpers.q -debug
 

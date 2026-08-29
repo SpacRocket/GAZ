@@ -6,6 +6,5 @@ localhost,{KDBBASEPORT}+3,hdb,hdb1,,1,1,60,4000,${GAZ_HDB},1,,q
 localhost,{KDBBASEPORT}+5,wdb,wdb1,,1,1,,,${KDBCODE}/processes/wdb.q,1,,q
 localhost,{KDBBASEPORT}+6,sort,sort1,,1,1,,,${KDBCODE}/processes/wdb.q,1,-s -2 -parentproctype wdb,q
 localhost,{KDBBASEPORT}+7,gateway,gateway1,,1,1,,4000,${KDBCODE}/processes/gateway.q,1,,q
-localhost,{KDBBASEPORT}+14,feed,feed1,,1,0,,,${KDBAPPCODE}/tick/feed.q,1,,q
 localhost,{KDBBASEPORT}+30,test,test1,,1,0,,,,0,,q
 localhost,{KDBBASEPORT}+31,itest,itest1,,1,0,,,,0,,q

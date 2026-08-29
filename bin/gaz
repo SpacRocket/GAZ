@@ -11,6 +11,7 @@
 #   bin/gaz stop  [proc|all]     bin/gaz debug <proc>    # foreground, interactive
 #   bin/gaz restart [proc|all]   bin/gaz run <proc...> [--sidecar <cmd>]...
 #   bin/gaz qcon  <proc>         bin/gaz print <proc>    # show the command line
+#   bin/gaz repl [proc]                                  # interactive, connected
 #   bin/gaz tail  <proc>
 # ---------------------------------------------------------------------------
 set -euo pipefail
@@ -63,6 +64,15 @@ procnames() {
 allprocnames() { awk -F, 'NR>1 && NF>1 { print $4 }' "$CSV"; }
 
 exists() { allprocnames | grep -qx "$1"; }
+
+# The host column, with TorQ's own {VAR} syntax resolved (torq.q:303). Needed
+# by qcon: inside a container the peer is a service name, on the local stack it
+# is localhost, and the process file is the only thing that knows which.
+hostfor() {
+  local h; h="$(field "$1" host)"
+  h="${h/#\{/\$\{}"
+  expand "$h"
+}
 
 # Ports are written as {KDBBASEPORT}+n so the whole stack relocates together.
 port() {
@@ -207,7 +217,36 @@ case "$cmd" in
            wait "$primary_pid"; rc=$?
            kill 0 2>/dev/null || true
            exit "$rc" ;;
-  qcon)    exec "${QCON:-qcon}" ":$(port "$arg")" ;;
+  # An interactive q that is already a TorQ process, with .servers wired to the
+  # running stack — so .servers.gethandlebytype works and you can reach the
+  # tickerplant and rdb by proctype instead of hand-rolling hopen.
+  #
+  # Defaults to the itest proctype because its four .servers flags are the ones
+  # that actually connect; `test` is deliberately isolated (see
+  # appconfig/settings/itest.q). The row's host is `localhost`, which torq.q:431
+  # accepts on any machine, so this works unchanged inside any container.
+  repl)    name="${2:-itest1}"
+           exists "$name" || { echo "unknown process: $name" >&2; exit 1; }
+           # shellcheck disable=SC2086
+           if command -v rlwrap >/dev/null 2>&1; then
+             exec rlwrap -A $(startline "$name") -debug
+           else
+             exec $(startline "$name") -debug
+           fi ;;
+  # A remote console on another process. KDB-X 5.0 ships no qcon binary, so
+  # this drives code/tools/rconsole.q instead — same idea, plain q. QCON still
+  # wins if you have a real console binary on PATH.
+  qcon)    name="${2:-}"
+           [ -n "$name" ] || { echo "usage: gaz qcon <proc>" >&2; exit 1; }
+           exists "$name" || { echo "unknown process: $name" >&2; exit 1; }
+           tgt="$(hostfor "$name"):$(port "$name")"
+           [ -z "${QCON:-}" ] || exec "$QCON" ":$tgt"
+           rc="$TORQAPPHOME/code/tools/rconsole.q"
+           if command -v rlwrap >/dev/null 2>&1; then
+             exec rlwrap -A "$QCMD" "$rc" "$tgt" -q
+           else
+             exec "$QCMD" "$rc" "$tgt" -q
+           fi ;;
   tail)    exec tail -f "$KDBLOG/gaz_$arg.log" ;;
   *)       sed -n '3,17p' "$0" | sed 's|^# \?||'; exit 1 ;;
 esac

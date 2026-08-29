@@ -4,7 +4,9 @@ true,0,0,q,.t.up`rdb,1,,rdb is reachable through discovery
 true,0,0,q,.t.up`hdb,1,,hdb is reachable through discovery
 true,0,0,q,.t.up`gateway,1,,gateway is reachable through discovery
 true,0,0,q,.t.hastables`rdb,1,,rdb carries the schema from database.q
-true,0,0,q,.t.until[30;{0<.t.rows[`rdb;`trade]}],1,,feed reaches the rdb via the tickerplant within 30s
-true,0,0,q,.t.until[30;{0<.t.rows[`rdb;`quote]}],1,,quotes reach the rdb
+true,0,0,q,.t.until[60;{0<.t.rows[`rdb;`power]}],1,,power reaches the rdb via the tickerplant
+true,0,0,q,.t.until[60;{0<.t.rows[`rdb;`gas]}],1,,gas reaches the rdb - slower cadence than power
+true,0,0,q,.t.until[60;{0<.t.rows[`rdb;`carbon]}],1,,carbon reaches the rdb - slowest of the three
 true,0,0,q,0<count key hsym`$getenv`GAZ_TPLOG,1,,tickerplant is writing a recovery log
-true,0,0,q,all .gaz.validtrade .t.ask[`rdb;"select from trade"],1,,nothing invalid got past the feed into the rdb
+true,0,0,q,not any null .t.ask[`rdb;"exec price from power"],1,,power prices are never null - negative IS valid, European day-ahead goes below zero on oversupply
+true,0,0,q,0=count .t.ask[`rdb;"select from power where null zone"],1,,no power row arrives without a bidding zone

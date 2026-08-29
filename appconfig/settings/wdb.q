@@ -19,7 +19,7 @@ gatewaytypes:`gateway
 mode:`save                      // write intraday, then hand off to the sort proc at EOD
 writedownmode:`default
 settimer:0D00:00:10             // how often to check whether a flush is due
-numtab:`quote`trade!10000 50000 // per-table row thresholds before flushing
+numtab:`power`gas`carbon!5000 2000 1000 // per-table row thresholds before flushing
 replay:1b                       // replay the tp log on restart
 schema:1b                       // take the schema from the tickerplant
 \d .

@@ -70,6 +70,15 @@ ENV GAZ_HDB=/fsx/hdb \
 RUN mkdir -p "${GAZ_HDB}" "${GAZ_WDB}" "${GAZ_TPLOG}" "${GAZ_LOG}" \
  && chown -R gaz:gaz "${GAZ_HDB}" "${GAZ_WDB}" "${GAZ_TPLOG}" "${GAZ_LOG}"
 
+# `tq` in an interactive container shell: a q session that is a TorQ process on
+# this stack, rather than the bare kdb+ that `q` gives you. Takes an optional
+# process name (tq rdb1), defaulting to itest1. Lands in .bashrc because
+# `docker compose exec <svc> bash` is an interactive non-login shell, which
+# reads that and not /etc/profile.d.
+RUN printf '\n# gaz: interactive TorQ process on this stack\nalias tq=%s\n' \
+      "'/app/bin/gaz repl'" >> /home/gaz/.bashrc \
+ && chown gaz:gaz /home/gaz/.bashrc
+
 USER gaz
 ENTRYPOINT ["/app/bin/gaz"]
 CMD ["status"]
