@@ -32,6 +32,11 @@ x-gaz: &gaz
     GAZ_WDB: /mnt/wdb
     GAZ_TPLOG: /mnt/tplog
     GAZ_LOG: /var/log/gaz
+    # Read from your shell, never baked into the image or committed. Source it
+    # before bringing the stack up:
+    #   set -a; . ~/.secrets; set +a
+    #   docker compose -f docker/docker-compose.yml up -d
+    ENTSOE_API_KEY: ${ENTSOE_API_KEY:-}
   volumes:
     # Stands in for the FSx for OpenZFS mount. Shared by every reader.
     - hdb:/fsx/hdb
@@ -57,7 +62,19 @@ services:
     <<: *gaz
     hostname: stp
     init: true
-    command: ["run", "stp1", "--sidecar", "python3 /app/code/tick/feed.py"]
+    # One handler per market. Three processes rather than one because the
+    # three series must arrive independently — that asynchrony is what the
+    # spark-spread as-of join exists to resolve — and because sim_power is
+    # meant to be swapped for an ENTSO-E adapter on its own.
+    command:
+      - "run"
+      - "stp1"
+      - "--sidecar"
+      - "python3 /app/code/tick/entsoe_power.py"
+      - "--sidecar"
+      - "python3 /app/code/tick/sim_gas.py"
+      - "--sidecar"
+      - "python3 /app/code/tick/sim_carbon.py"
     depends_on: [discovery]
     volumes:
       - hdb:/fsx/hdb

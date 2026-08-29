@@ -9,3 +9,15 @@ true,0,0,q,.t.sametype[trade;.t.trades],1,,test fixture has not drifted from the
 true,0,0,q,.t.sametype[quote;.t.quotes],1,,test fixture has not drifted from the shipped quote schema
 true,0,0,q,0=count trade,1,,schema file defines empty tables only
 true,0,0,q,0=count quote,1,,schema file defines empty tables only
+true,0,0,q,cols[`power]~`time`zone`delivery`price`src,1,,power column set - the ENTSO-E adapter must publish exactly these
+true,0,0,q,cols[`gas]~`time`hub`price`src,1,,gas column set
+true,0,0,q,cols[`carbon]~`time`contract`price`src,1,,carbon column set
+true,0,0,q,(first exec t from meta[`power] where c=`time)="p",1,,power time is a timestamp - the tickerplant stamps it
+true,0,0,q,(first exec t from meta[`power] where c=`delivery)="p",1,,delivery period is a timestamp
+true,0,0,q,`g~first exec a from meta[`power] where c=`zone,1,,power zone carries the grouped attribute for as-of joins
+true,0,0,q,`g~first exec a from meta[`gas] where c=`hub,1,,gas hub carries the grouped attribute
+true,0,0,q,`g~first exec a from meta[`carbon] where c=`contract,1,,carbon contract carries the grouped attribute
+true,0,0,q,all "f"=exec t from meta[`power] where c=`price,1,,power price is a float
+true,0,0,q,0=count power,1,,schema file defines empty tables only
+true,0,0,q,0=count gas,1,,schema file defines empty tables only
+true,0,0,q,0=count carbon,1,,schema file defines empty tables only
