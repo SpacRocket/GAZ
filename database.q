@@ -37,3 +37,30 @@ carbon:([]
   contract:`g#`symbol$();    // EUA front-December
   price   :`float$();        // EUR/tCO2
   src     :`symbol$() )
+
+// --- our own offers ------------------------------------------------------
+//
+// Bids go through the tickerplant like any other feed, which is what makes
+// `time` meaningful here in a way it is not for power: an ENTSO-E row is
+// stamped when we happened to poll, but a bid is stamped when it was actually
+// submitted. That gives an audit trail for free — offers are append-only, so
+// revising one before gate closure leaves both versions on the record and
+// "what did we offer, and when did we change our mind" stays answerable.
+//
+// The effective offer for a delivery period is therefore the last row before
+// gate closure (12:00 CET on T-1), not simply the last row:
+//   select last price, last mw by plant, delivery from bid where time < gc
+//
+// Dispatch is an ordinary join against cleared prices on (zone;delivery) —
+// not an as-of join. Both sides are keyed to delivery periods, not to
+// arrival, so there is nothing to align in time.
+
+bid:([]
+  time    :`timestamp$();
+  plant   :`g#`symbol$();    // unit offering
+  zone    :`symbol$();       // bidding zone, matches power.zone
+  delivery:`timestamp$();    // the period being offered, matches power.delivery
+  mw      :`float$();        // volume offered
+  price   :`float$();        // offer price EUR/MWh - your marginal cost
+  src     :`symbol$() )      // MANUAL for a hand-entered offer
+

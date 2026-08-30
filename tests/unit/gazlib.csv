@@ -13,3 +13,12 @@ true,0,0,q,0=count .gaz.hdbdates .t.emptydir,1,,hdbdates on a directory that has
 true,0,0,q,0=count .gaz.hdbdates hsym`$getenv`GAZ_TPLOG,1,,hdbdates drops non-partition names - a tplog dir has no dates in it whether or not the stack has run
 true,0,0,q,(`date$())~.gaz.hdbdates .t.emptydir,1,,empty result is typed as a date list not an untyped () - parens matter, `date$()~x parses as `date$(()~x)
 fail,0,0,q,.gaz.mid[1f;2f;3f],1,,mid is rank 2
+true,0,0,q,.t.eqf[.gaz.marginalcost[30f;0f;0.2;0.5];60f],1,,zero carbon - 30 EUR/MWh thermal at 50% efficiency is 60 EUR/MWh electrical
+true,0,0,q,.t.eqf[.gaz.marginalcost[30f;100f;0.2;0.5];100f],1,,carbon adds 100*0.2=20 thermal - (30+20)/0.5 = 100
+true,0,0,q,.t.eqf[.gaz.marginalcost[30f;100f;0f;0.5];60f],1,,a zero emissions factor removes the carbon leg entirely
+true,0,0,q,.t.eqf[.gaz.marginalcost[30f;100f;0.2;1f];50f],1,,efficiency of 1 leaves fuel plus carbon untouched
+true,0,0,q,.t.eqf[.gaz.cleanspark[120f;30f;100f;0.2;0.5];20f],1,,clean spark is power less marginal cost
+true,0,0,q,.gaz.dispatch[120f;30f;100f;0.2;0.5],1,,in the money when power exceeds marginal cost
+true,0,0,q,not .gaz.dispatch[80f;30f;100f;0.2;0.5],1,,out of the money when it does not
+true,0,0,q,10b~.gaz.dispatch[120 80f;30f;100f;0.2;0.5],1,,dispatch vectorises over a delivery curve
+true,0,0,q,.t.eqf[.gaz.marginalcost[30 30f;100f;0.2;0.5];2#100f],1,,marginal cost vectorises over gas

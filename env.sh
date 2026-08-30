@@ -42,6 +42,11 @@ export KDBAPPCONFIG="$TORQAPPHOME/appconfig"
 # single-host stack, docker/ for containers, infra/ for the split cloud hosts.
 export TORQPROCESSES="${TORQPROCESSES:-$KDBAPPCONFIG/process.csv}"
 export GAZ_SCHEMA="$TORQAPPHOME/database.q"
+# Plant reference data. Small, static and hand-edited, so a CSV in git beats
+# a splayed table — changes show up in history. Loaded by code/common/plants.q
+# into every process, NOT from database.q: that file is the tickerplant's
+# schemafile and a non-tick table there fails init with a length error.
+export GAZ_PLANTS="$KDBAPPCONFIG/plants.csv"
 
 # KDBTESTS must point at TorQ's tests dir: passing -test makes torq.q load
 # $KDBTESTS/k4unit.q and $KDBTESTS/runtests.q from there (torq.q:708). Our own

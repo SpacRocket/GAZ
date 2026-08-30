@@ -7,6 +7,35 @@
 
 \d .gaz
 
+// --- units ---------------------------------------------------------------
+//
+// Deliberately here and not in database.q: that file is the tickerplant's
+// -schemafile, and the STP treats every root table in it as a tick table to
+// log. A keyed table with no `time` column makes init fail with a length
+// error and the tickerplant crashloops. Metadata is not a tick table.
+//
+// European conventions throughout, and the two that actually change numbers:
+//
+//   * Gas is EUR/MWh thermal, NOT USD/MMBtu. Henry Hub quotes are per MMBtu;
+//     TTF is per MWh. Mixing them is a factor of ~3.4 error.
+//   * Efficiency is on a LOWER heating value basis, the European convention.
+//     US sources quote HHV, which runs ~10% higher for natural gas — an
+//     efficiency copied from an HHV source makes a plant look better than it
+//     is, and the error lands straight in the marginal cost.
+//
+// Carbon is EUR per tonne CO2 (metric), never short tons.
+
+units:2!flip `tab`col`unit`basis!flip (
+  (`power ; `price      ; `$"EUR/MWh"      ; `electrical);
+  (`gas   ; `price      ; `$"EUR/MWh"      ; `thermal_LHV);
+  (`carbon; `price      ; `$"EUR/tCO2"     ; `allowance);
+  (`bid   ; `price      ; `$"EUR/MWh"      ; `electrical);
+  (`bid   ; `mw         ; `MW              ; `electrical);
+  (`plants; `capacity   ; `MW              ; `electrical);
+  (`plants; `efficiency ; `ratio           ; `LHV);
+  (`plants; `ef         ; `$"tCO2/MWh"     ; `thermal);
+  (`plants; `startup    ; `EUR             ; `per_start))
+
 // --- pricing -------------------------------------------------------------
 
 // Mid price from a bid/ask pair. Vector-friendly.
@@ -24,6 +53,36 @@ vwap:{[p;s] $[0=count p; 0nf; 0=t:sum s; 0nf; (sum p*s)%t]}
 
 // Round to n decimal places.
 rnd:{[n;x] m:"f"$prd n#10; (floor 0.5+x*m)%m}
+
+// --- CCGT economics ------------------------------------------------------
+//
+// Everything here is EUR per MWh ELECTRICAL out. The conversions are where the
+// mistakes live, so they are spelled out rather than folded together.
+//
+// Burning gas to make 1 MWh electrical consumes 1/eff MWh thermal, and that
+// thermal burn emits ef tonnes of CO2 per MWh thermal. So BOTH the fuel and
+// the carbon term divide by efficiency — a common slip is to divide only the
+// fuel, which understates marginal cost by the whole carbon leg.
+//
+//   gas    EUR/MWh thermal   (TTF; per MWh, never per MMBtu)
+//   carbon EUR/tCO2
+//   ef     tCO2/MWh thermal  (natural gas ~0.202)
+//   eff    ratio, LHV basis  (European convention; a US HHV figure is ~10% high)
+//
+// Vector-friendly in every argument, so it works on a whole delivery curve.
+
+// What it costs you to generate one MWh.
+marginalcost:{[gas;carbon;ef;eff] (gas + carbon*ef) % eff}
+
+// Clean spark spread: what you make per MWh at a given power price.
+// Positive means the unit is in the money for that period.
+cleanspark:{[power;gas;carbon;ef;eff] power - .gaz.marginalcost[gas;carbon;ef;eff]}
+
+// Dispatch signal. Deliberately ignores start-up cost: the simplification is
+// that the unit runs at full load whenever the spread is positive. Revisit
+// this if cycling is ever modelled, because a start is a real cost that a
+// single positive period may not cover.
+dispatch:{[power;gas;carbon;ef;eff] 0f < .gaz.cleanspark[power;gas;carbon;ef;eff]}
 
 // --- bucketing -----------------------------------------------------------
 
