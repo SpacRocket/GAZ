@@ -20,6 +20,7 @@ emailing transparency@entsoe.eu with "RESTful API access" in the subject.
 import datetime as dt
 import os
 import sys
+import time
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -44,6 +45,7 @@ ZONES = {
     "FR": "10YFR-RTE------C",
     "NL": "10YNL----------L",
     "BE": "10YBE----------2",
+    "ES": "10YES-REE------0",
 }
 
 NS = {"p": "urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3"}
@@ -55,8 +57,42 @@ RESOLUTION_MINUTES = {"PT15M": 15, "PT30M": 30, "PT60M": 60, "PT1H": 60}
 _seen = set()
 
 
-def _fetch(zone_eic, start, end):
-    """One A44 (day-ahead prices) request for a single bidding zone."""
+def _seed_from_rdb():
+    """Recover what has already been published, so a restart is not a republish.
+
+    _seen lives in memory, so every container restart used to re-ingest the
+    whole window — the power table ended up holding several rows per delivery
+    period, some of them genuinely disagreeing because ENTSO-E also revises
+    prices. Asking the RDB what it already has makes the published data the
+    source of truth rather than this process's uptime.
+
+    Best effort: if the RDB is not up yet the feed simply starts cold, which is
+    the old behaviour and no worse.
+    """
+    try:
+        conn = gf.kx.SyncQConnection(
+            os.environ.get("GAZ_RDB_HOST", "rdb"),
+            int(os.environ.get("GAZ_RDB_PORT", "6002")),
+            no_ctx=True,
+        )
+        rows = conn("select distinct zone, delivery from power where src=`ENTSOE", wait=True)
+        zones = [str(z) for z in rows["zone"].py()]
+        delivs = rows["delivery"].py()
+        for z, d in zip(zones, delivs):
+            _seen.add((z, d))
+        print(f"{NAME}: seeded {len(_seen)} already-published points from the rdb", flush=True)
+        conn.close()
+    except BaseException as e:  # noqa: BLE001 - cold start is an acceptable fallback
+        print(f"{NAME}: could not seed from rdb ({e}) - starting cold", flush=True)
+
+
+def _fetch(zone_eic, start, end, attempts=3):
+    """One A44 (day-ahead prices) request for a single bidding zone.
+
+    ENTSO-E is flaky under load — 503s and dropped reads are routine, and both
+    were observed in a single afternoon. Retries with a short backoff, and a
+    timeout well above the 30s that was cutting NL and BE off mid-response.
+    """
     params = {
         "securityToken": API_KEY,
         "documentType": "A44",
@@ -67,8 +103,16 @@ def _fetch(zone_eic, start, end):
     }
     url = f"{API}?{urllib.parse.urlencode(params)}"
     req = urllib.request.Request(url, headers={"User-Agent": "gaz/entsoe-feed"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return r.read()
+    last = None
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(req, timeout=90) as r:
+                return r.read()
+        except BaseException as e:  # noqa: BLE001 - retry any transport failure
+            last = e
+            if attempt + 1 < attempts:
+                time.sleep(5 * (attempt + 1))
+    raise last
 
 
 def _parse(xml_bytes):
@@ -162,4 +206,5 @@ if __name__ == "__main__":
     if not API_KEY:
         print(f"{NAME}: ENTSOE_API_KEY is not set — refusing to start", flush=True)
         sys.exit(1)
+    _seed_from_rdb()
     gf.run(NAME, TABLE, INTERVAL, make_batch)

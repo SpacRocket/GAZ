@@ -50,14 +50,24 @@ curve:{[plant;date]
   gc:marks[];
   gas:gc 0; co2:gc 1;
 
-  pw:0!rdb[]"select price:last price by zone,delivery from power where src=`ENTSOE";
+  // Prefer real cleared prices; fall back to the simulator only if ENTSO-E has
+  // nothing for that zone and date. ENTSO-E returns 503 for hours at a time,
+  // and a spread that cannot be computed because a third party is down is
+  // worse than one that is explicit about where its input came from — hence
+  // the `src` column on the result.
+  pw:0!rdb[]"select price:last price by src,zone,delivery from power";
 
   // No qsql here on purpose. Names inside a select resolve against the ROOT
   // namespace at runtime, not this function's scope, so `where zone=pl`zone,
   // delivery.date=date` silently matches nothing — `pl` and `date` are locals
   // and invisible to it. Plain vector filtering has no such trap.
-  m:(pw[`zone]=pl`zone) and (`date$pw`delivery)=date;
-  if[not any m; '"no cleared power prices for that zone and date"];
+  inzone:(pw[`zone]=pl`zone) and (`date$pw`delivery)=date;
+  m:inzone and pw[`src]=`ENTSOE;
+  used:`ENTSOE;
+  if[not any m; m:inzone and pw[`src]=`SIM; used:`SIM];
+  if[not any m;
+    '"no power prices for ",string[pl`zone]," on ",string[date],
+      " - neither ENTSO-E nor the simulator has published for that date"];
   dl:pw[`delivery] where m;
   pwr:pw[`price] where m;
   o:iasc dl; dl:dl o; pwr:pwr o;
@@ -67,7 +77,8 @@ curve:{[plant;date]
       power    :pwr;
       marginal :count[pwr]#mc;
       spark    :pwr-mc;
-      run      :pwr>mc) }
+      run      :pwr>mc;
+      src      :count[pwr]#used) }
 
 // One-line view of a day: how many periods pay, and what the day is worth if
 // you run only those. Ignores start-up cost, consistent with .gaz.dispatch.
@@ -77,8 +88,8 @@ summary:{[plant;date]
   inmoney:select from c where run;
   // 15-minute periods, so a period is a quarter of an hour of output
   mwh:0.25*pl`capacity;
-  `plant`date`periods`inmoney`bestspark`worstspark`marginal`grossmargin!
-    (plant; date; count c; count inmoney;
+  `plant`date`src`periods`inmoney`bestspark`worstspark`marginal`grossmargin!
+    (plant; date; first c`src; count c; count inmoney;
      max c`spark; min c`spark; first c`marginal;
      mwh*sum inmoney`spark) }
 

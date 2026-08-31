@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Simulated power price feed — the slot the ENTSO-E adapter replaces.
+"""Simulated power price feed — fallback for when ENTSO-E is unavailable.
+
+Runs ALONGSIDE entsoe_power rather than instead of it. ENTSO-E returns 503 for
+sustained periods (observed across a whole morning), and a demo that dies
+because a third party is down is not much of a demo. Both publish to `power`;
+`src` tells them apart, and .spread.curve prefers ENTSOE and falls back to SIM.
 
 ENTSO-E Transparency is the real source for this table: day-ahead prices are
 free there (they are the EPEX/Nord Pool auction results), unlike EPEX's own
@@ -28,39 +33,78 @@ TABLE = "power"
 # Deliberately not a round number relative to the gas and carbon handlers: the
 # three series must arrive at unrelated times for the as-of join to be doing
 # real work rather than lining up by accident.
-INTERVAL = float(os.environ.get("GAZ_POWER_INTERVAL", "1.7"))
+INTERVAL = float(os.environ.get("GAZ_POWER_INTERVAL", "60"))
 
 # ENTSO-E bidding-zone names, so the real adapter maps straight onto these.
-ZONES = ["DE_LU", "FR", "NL", "BE"]
+ZONES = ["DE_LU", "FR", "NL", "BE", "ES"]
 
 # EUR/MWh. Plausible mid-2026 European day-ahead levels; France sits lower on
 # nuclear availability, DE_LU carries more renewable-driven variance.
-LEVEL = {"DE_LU": 92.0, "FR": 78.0, "NL": 95.0, "BE": 97.0}
+LEVEL = {"DE_LU": 92.0, "FR": 78.0, "NL": 95.0, "BE": 97.0, "ES": 84.0}
 price = dict(LEVEL)
 
 
-def make_batch():
-    """One tick per zone, mean-reverting around the reference level.
+# Already-published (zone, delivery), so re-polling is a no-op — the same
+# contract entsoe_power has. Without it the table fills with duplicates.
+_seen = set()
 
-    Power is the most volatile of the three legs, which is what makes it the
-    series the spread is computed *on* — gas and carbon are joined onto it.
+
+def _shape(hour):
+    """Crude diurnal shape: cheap overnight, morning and evening peaks.
+
+    Enough structure that a spark spread has periods in and out of the money,
+    which is the whole point of a fallback for the demo.
     """
-    n = len(ZONES)
-    for z in ZONES:
-        # Ornstein-Uhlenbeck-ish: pull back toward the level, plus noise.
-        price[z] += 0.05 * (LEVEL[z] - price[z]) + random.gauss(0, 0.9)
+    if 0 <= hour < 6:
+        return 0.72
+    if 6 <= hour < 9:
+        return 1.18
+    if 9 <= hour < 16:
+        return 0.94
+    if 16 <= hour < 21:
+        return 1.30
+    return 0.88
 
-    # Delivery period is the current hour. A real day-ahead feed would publish
-    # tomorrow's 24 hours in one burst; the shape of the column is the same.
-    hour = dt.datetime.now(dt.timezone.utc).replace(
-        minute=0, second=0, microsecond=0, tzinfo=None
+
+def make_batch():
+    """A day-ahead style curve: 96 quarter-hours per zone, today and tomorrow.
+
+    Mirrors what ENTSO-E delivers rather than emitting a single live tick, so
+    .spread.curve gets a real curve when ENTSO-E is unreachable. Publishes each
+    (zone, delivery) once, so this settles to a no-op until the date rolls.
+    """
+    today = dt.datetime.now(dt.timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0, tzinfo=None
     )
 
+    zones, deliveries, prices = [], [], []
+    for day in (today, today + dt.timedelta(days=1)):
+        for z in ZONES:
+            for q in range(96):
+                delivery = day + dt.timedelta(minutes=15 * q)
+                key = (z, delivery)
+                if key in _seen:
+                    continue
+                _seen.add(key)
+                px = LEVEL[z] * _shape(delivery.hour) * (1.0 + random.gauss(0, 0.06))
+                zones.append(z)
+                deliveries.append(delivery)
+                prices.append(round(px, 2))
+
+    # Drop anything older than a few days so the set cannot grow without bound.
+    cutoff = today - dt.timedelta(days=3)
+    for k in [k for k in _seen if k[1] < cutoff]:
+        _seen.discard(k)
+
+    if not zones:
+        return None
+
+    print(f"{NAME}: publishing {len(zones)} simulated price points", flush=True)
     return (
-        gf.SymbolVector(ZONES),
-        gf.TimestampVector([hour] * n),
-        gf.FloatVector([round(price[z], 2) for z in ZONES]),
-        gf.SymbolVector(["SIM"] * n),
+        gf.SymbolVector(zones),
+        gf.TimestampVector(deliveries),
+        gf.FloatVector(prices),
+        gf.SymbolVector(["SIM"] * len(zones)),
     )
 
 

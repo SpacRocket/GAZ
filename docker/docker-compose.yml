@@ -72,6 +72,8 @@ services:
       - "--sidecar"
       - "python3 /app/code/tick/entsoe_power.py"
       - "--sidecar"
+      - "python3 /app/code/tick/sim_power.py"
+      - "--sidecar"
       - "python3 /app/code/tick/sim_gas.py"
       - "--sidecar"
       - "python3 /app/code/tick/sim_carbon.py"
@@ -122,6 +124,11 @@ services:
       - hdb:/fsx/hdb
       - ${QLIC:-${HOME}/Applications/q}:/etc/kdb:ro
       - wdb:/mnt/wdb
+      # The sort subscribes to the tickerplant and replays its logs on startup,
+      # so it needs to SEE them. Without this it fails with "could not replay
+      # the log file ... No such file or directory" and exits 3 forever — the
+      # reason EOD had never once run.
+      - tplog:/mnt/tplog
 
   hdb1: &hdb
     <<: *gaz
