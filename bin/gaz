@@ -241,7 +241,7 @@ case "$cmd" in
            exists "$name" || { echo "unknown process: $name" >&2; exit 1; }
            tgt="$(hostfor "$name"):$(port "$name")"
            [ -z "${QCON:-}" ] || exec "$QCON" ":$tgt"
-           rc="$TORQAPPHOME/code/tools/rconsole.q"
+           rc="$TORQAPPHOME/code/console/rconsole.q"
            if command -v rlwrap >/dev/null 2>&1; then
              exec rlwrap -A "$QCMD" "$rc" "$tgt" -q
            else

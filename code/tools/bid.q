@@ -5,6 +5,11 @@
 // the moment you committed to that offer, and because the log is append-only,
 // revising an offer before gate closure leaves both versions on the record.
 //
+// Everything in code/tools/ is loaded as a DIRECTORY by the itest proctype, so
+// only loadable libraries belong here — a standalone script that connects on
+// load (rconsole.q) breaks every process that loads the directory. That one
+// lives in code/console/.
+//
 // Loaded into the itest proctype, so `tq` gives you these straight away:
 //
 //   tq
