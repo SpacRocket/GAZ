@@ -1,0 +1,117 @@
+{
+  "uid": "gaz-marginal",
+  "title": "Marginal Cost",
+  "tags": [
+    "gaz"
+  ],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Marginal cost per MWh by plant",
+      "description": "(gas + carbon x emissions_factor) / efficiency. EUR per MWh ELECTRICAL out \u2014 a unit cost, not the cost of running the plant, so capacity is not a factor. Both the fuel and the carbon term divide by efficiency: making 1 MWh electrical burns 1/eff MWh thermal, and that burn is what emits. Gas is EUR/MWh thermal on an LHV basis.",
+      "datasource": {
+        "type": "grafana-simple-json-datasource",
+        "uid": "gaz-rdb"
+      },
+      "gridPos": {
+        "h": 11,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "target": "g.gv_marginal.marginal",
+          "type": "timeserie",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "decimals": 2,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "last",
+            "min",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "asc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Input marks driving it (TTF gas EUR/MWh th, EUA carbon EUR/tCO2)",
+      "description": "The same two marks feed every plant; what separates the plants above is only their efficiency.",
+      "datasource": {
+        "type": "grafana-simple-json-datasource",
+        "uid": "gaz-rdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 11
+      },
+      "targets": [
+        {
+          "target": "o.gv_marginal.gas.Sloe",
+          "type": "timeserie",
+          "refId": "A"
+        },
+        {
+          "target": "o.gv_marginal.carbon.Sloe",
+          "type": "timeserie",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "decimals": 2,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    }
+  ]
+}

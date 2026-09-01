@@ -1,0 +1,80 @@
+{
+  "uid": "gaz-power",
+  "title": "Power Prices",
+  "tags": [
+    "gaz"
+  ],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1d",
+    "to": "now+2d"
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Day-ahead power price by bidding zone",
+      "description": "Charted against DELIVERY period, not ingest time. ENTSO-E publishes a whole day in one burst, so every row shares an arrival timestamp; delivery is the axis that means something. src=ENTSOE when the real feed is up, SIM when it is not.",
+      "datasource": {
+        "type": "grafana-simple-json-datasource",
+        "uid": "gaz-rdb"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "target": "g.gv_power.price",
+          "type": "timeserie",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "min",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+# Grafana talks to the RDB, not the gateway.
+#
+# The gateway routes queries but holds no tables of its own, and TorQ's
+# grafana.q enumerates tables[] locally — a datasource pointed at 6007 finds
+# nothing to plot. The RDB holds today's ticking data, which is what a live
+# dashboard wants.
+#
+# kdb+ serves IPC and HTTP on the same port, so 6002 is both the q handle and
+# the Grafana endpoint. TorQ's handler keys off the X-Grafana-Org-Id header to
+# tell a Grafana POST from any other HTTP request.
+apiVersion: 1
+
+datasources:
+  - name: gaz-rdb
+    # Fixed uid so the provisioned dashboard can reference it; without this
+    # Grafana generates a random one and the panel resolves to nothing.
+    uid: gaz-rdb
+    type: grafana-simple-json-datasource
+    access: proxy
+    url: http://rdb:6002
+    isDefault: true
+    editable: true
+    jsonData:
+      httpHeaderName1: "X-Grafana-Org-Id"
+    secureJsonData:
+      httpHeaderValue1: "1"
