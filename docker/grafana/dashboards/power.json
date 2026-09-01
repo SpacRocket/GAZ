@@ -6,7 +6,7 @@
   ],
   "timezone": "utc",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "time": {
     "from": "now-1d",
@@ -16,9 +16,9 @@
     {
       "type": "timeseries",
       "title": "Day-ahead power price by bidding zone",
-      "description": "Charted against DELIVERY period, not ingest time. ENTSO-E publishes a whole day in one burst, so every row shares an arrival timestamp; delivery is the axis that means something. src=ENTSOE when the real feed is up, SIM when it is not.",
+      "description": "Charted against DELIVERY period, not ingest time. ENTSO-E publishes a whole day in one burst, so every row shares an arrival timestamp; delivery is the axis that means something. Falls back to simulated prices when ENTSO-E is unavailable.",
       "datasource": {
-        "type": "grafana-simple-json-datasource",
+        "type": "yesoreyeram-infinity-datasource",
         "uid": "gaz-rdb"
       },
       "gridPos": {
@@ -29,33 +29,62 @@
       },
       "targets": [
         {
-          "target": "g.gv_power.price",
-          "type": "timeserie",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "gaz-rdb"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "url": "http://rdb:6002/gaz/power",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "time",
+              "text": "time",
+              "type": "timestamp_epoch"
+            },
+            {
+              "selector": "sym",
+              "text": "sym",
+              "type": "string"
+            },
+            {
+              "selector": "value",
+              "text": "value",
+              "type": "number"
+            }
+          ],
+          "filters": [],
+          "parser": "backend"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "sym"
+            ],
+            "keepFields": false
+          }
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "currencyEUR",
+          "decimals": 2,
           "custom": {
             "drawStyle": "line",
             "lineInterpolation": "stepAfter",
             "lineWidth": 2,
             "fillOpacity": 5,
             "showPoints": "never"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 0
-              }
-            ]
           }
         },
         "overrides": []

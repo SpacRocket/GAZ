@@ -6,7 +6,7 @@
   ],
   "timezone": "utc",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "10s",
   "time": {
     "from": "now-6h",
@@ -16,9 +16,9 @@
     {
       "type": "timeseries",
       "title": "Marginal cost per MWh by plant",
-      "description": "(gas + carbon x emissions_factor) / efficiency. EUR per MWh ELECTRICAL out \u2014 a unit cost, not the cost of running the plant, so capacity is not a factor. Both the fuel and the carbon term divide by efficiency: making 1 MWh electrical burns 1/eff MWh thermal, and that burn is what emits. Gas is EUR/MWh thermal on an LHV basis.",
+      "description": "(gas + carbon x emissions_factor) / efficiency, in EUR per MWh ELECTRICAL. A unit cost, not the cost of running the plant \u2014 capacity is not a factor. Both terms divide by efficiency: making 1 MWh electrical burns 1/eff MWh thermal, and that burn is what emits. Gas is EUR/MWh thermal, LHV basis.",
       "datasource": {
-        "type": "grafana-simple-json-datasource",
+        "type": "yesoreyeram-infinity-datasource",
         "uid": "gaz-rdb"
       },
       "gridPos": {
@@ -29,9 +29,50 @@
       },
       "targets": [
         {
-          "target": "g.gv_marginal.marginal",
-          "type": "timeserie",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "gaz-rdb"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "url": "http://rdb:6002/gaz/marginal",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "time",
+              "text": "time",
+              "type": "timestamp_epoch"
+            },
+            {
+              "selector": "sym",
+              "text": "sym",
+              "type": "string"
+            },
+            {
+              "selector": "value",
+              "text": "value",
+              "type": "number"
+            }
+          ],
+          "filters": [],
+          "parser": "backend"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "sym"
+            ],
+            "keepFields": false
+          }
         }
       ],
       "fieldConfig": {
@@ -66,10 +107,10 @@
     },
     {
       "type": "timeseries",
-      "title": "Input marks driving it (TTF gas EUR/MWh th, EUA carbon EUR/tCO2)",
+      "title": "Input marks (TTF gas EUR/MWh thermal, EUA carbon EUR/tCO2)",
       "description": "The same two marks feed every plant; what separates the plants above is only their efficiency.",
       "datasource": {
-        "type": "grafana-simple-json-datasource",
+        "type": "yesoreyeram-infinity-datasource",
         "uid": "gaz-rdb"
       },
       "gridPos": {
@@ -80,14 +121,39 @@
       },
       "targets": [
         {
-          "target": "o.gv_marginal.gas.Sloe",
-          "type": "timeserie",
-          "refId": "A"
-        },
-        {
-          "target": "o.gv_marginal.carbon.Sloe",
-          "type": "timeserie",
-          "refId": "B"
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "gaz-rdb"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "url": "http://rdb:6002/gaz/marks",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "time",
+              "text": "time",
+              "type": "timestamp_epoch"
+            },
+            {
+              "selector": "gas",
+              "text": "gas",
+              "type": "number"
+            },
+            {
+              "selector": "carbon",
+              "text": "carbon",
+              "type": "number"
+            }
+          ],
+          "filters": [],
+          "parser": "backend"
         }
       ],
       "fieldConfig": {

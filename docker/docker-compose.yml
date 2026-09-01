@@ -172,7 +172,18 @@ services:
       # RDB serves at /gaz/*. Replaces grafana-simple-json-datasource, which is
       # Angular-based — Grafana warns on every dashboard that uses it, disabled
       # Angular by default in 11 and removed the opt-out entirely in 11.6.
-      GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource
+      # PINNED. Unpinned, this pulls the latest Infinity, and 4.0.0 requires
+      # Grafana >=11.6.11 while this image is 11.6.0 — just under the floor.
+      # The symptom is not a version error but a SystemJS 404 on
+      # react/jsx-runtime, reported against whichever datasource you happen to
+      # be looking at. 3.11.1 declares >=11.6.0-0.
+      GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource 3.11.1
+      # Grafana 11 preinstalls Loki Explore and Pyroscope apps. Nothing here
+      # uses them, and grafana-lokiexplore-app fails to load in the browser
+      # (404 on react/jsx-runtime), which surfaces as a SystemJS error that
+      # looks like the gaz-rdb datasource failing. Not installing them is the
+      # fix; nothing in this stack needs either.
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
       GF_SECURITY_ADMIN_USER: ${GF_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GF_ADMIN_PASSWORD:-admin}
       # Local dashboards only; nothing here should phone home.
@@ -181,7 +192,11 @@ services:
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
-      - grafana:/var/lib/grafana/data
+      # Grafana's data directory is /var/lib/grafana itself — it holds
+      # grafana.db and plugins/. Mounting the volume at .../data created an
+      # unused empty directory and left plugin state in the container layer,
+      # so every recreate reinstalled from scratch.
+      - grafana:/var/lib/grafana
     restart: unless-stopped
 
 volumes:
