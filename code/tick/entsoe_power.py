@@ -57,33 +57,45 @@ RESOLUTION_MINUTES = {"PT15M": 15, "PT30M": 30, "PT60M": 60, "PT1H": 60}
 _seen = set()
 
 
-def _seed_from_rdb():
+STATE = os.environ.get("GAZ_ENTSOE_STATE", "/mnt/state/entsoe_seen.txt")
+
+
+def _load_seen():
     """Recover what has already been published, so a restart is not a republish.
 
-    _seen lives in memory, so every container restart used to re-ingest the
-    whole window — the power table ended up holding several rows per delivery
-    period, some of them genuinely disagreeing because ENTSO-E also revises
-    prices. Asking the RDB what it already has makes the published data the
-    source of truth rather than this process's uptime.
+    _seen lives in memory, so every restart used to re-ingest the whole window
+    and the power table filled with duplicate delivery periods. Persisting it
+    makes published data survive the process.
 
-    Best effort: if the RDB is not up yet the feed simply starts cold, which is
-    the old behaviour and no worse.
+    On disk rather than by querying the RDB: PyKX runs unlicensed here (its
+    bundled libq segfaults against a KDB-X 5.0 licence), and unlicensed mode
+    refuses to evaluate q, so the feed cannot ask the RDB what it already has.
+    A file needs no licence and no RDB to be up.
     """
     try:
-        conn = gf.kx.SyncQConnection(
-            os.environ.get("GAZ_RDB_HOST", "rdb"),
-            int(os.environ.get("GAZ_RDB_PORT", "6002")),
-            no_ctx=True,
-        )
-        rows = conn("select distinct zone, delivery from power where src=`ENTSOE", wait=True)
-        zones = [str(z) for z in rows["zone"].py()]
-        delivs = rows["delivery"].py()
-        for z, d in zip(zones, delivs):
-            _seen.add((z, d))
-        print(f"{NAME}: seeded {len(_seen)} already-published points from the rdb", flush=True)
-        conn.close()
-    except BaseException as e:  # noqa: BLE001 - cold start is an acceptable fallback
-        print(f"{NAME}: could not seed from rdb ({e}) - starting cold", flush=True)
+        with open(STATE) as fh:
+            for line in fh:
+                zone, _, iso = line.strip().partition("|")
+                if zone and iso:
+                    _seen.add((zone, dt.datetime.fromisoformat(iso)))
+        print(f"{NAME}: recovered {len(_seen)} published points from {STATE}", flush=True)
+    except FileNotFoundError:
+        print(f"{NAME}: no state at {STATE} - starting cold", flush=True)
+    except BaseException as e:  # noqa: BLE001 - a cold start is always safe
+        print(f"{NAME}: could not read {STATE} ({e}) - starting cold", flush=True)
+
+
+def _save_seen():
+    """Write atomically: a torn state file on a crash would be worse than none."""
+    try:
+        os.makedirs(os.path.dirname(STATE), exist_ok=True)
+        tmp = STATE + ".tmp"
+        with open(tmp, "w") as fh:
+            for zone, delivery in _seen:
+                fh.write(f"{zone}|{delivery.isoformat()}\n")
+        os.replace(tmp, STATE)
+    except BaseException as e:  # noqa: BLE001 - persistence is best effort
+        print(f"{NAME}: could not write {STATE} ({e})", flush=True)
 
 
 def _fetch(zone_eic, start, end, attempts=3):
@@ -186,6 +198,7 @@ def make_batch():
     if not zones:
         return None
 
+    _save_seen()
     print(f"{NAME}: publishing {len(zones)} new price points", flush=True)
     return (
         gf.SymbolVector(zones),
@@ -206,5 +219,5 @@ if __name__ == "__main__":
     if not API_KEY:
         print(f"{NAME}: ENTSOE_API_KEY is not set — refusing to start", flush=True)
         sys.exit(1)
-    _seed_from_rdb()
+    _load_seen()
     gf.run(NAME, TABLE, INTERVAL, make_batch)

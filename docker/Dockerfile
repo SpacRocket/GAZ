@@ -67,8 +67,8 @@ ENV GAZ_HDB=/fsx/hdb \
 # so a mkdir into root-owned /mnt or /var/log kills the launcher. Create them
 # as gaz here: an empty named volume inherits the mountpoint's ownership from
 # the image, so this covers both the mounted and unmounted cases.
-RUN mkdir -p "${GAZ_HDB}" "${GAZ_WDB}" "${GAZ_TPLOG}" "${GAZ_LOG}" \
- && chown -R gaz:gaz "${GAZ_HDB}" "${GAZ_WDB}" "${GAZ_TPLOG}" "${GAZ_LOG}"
+RUN mkdir -p "${GAZ_HDB}" "${GAZ_WDB}" "${GAZ_TPLOG}" "${GAZ_LOG}" /mnt/state \
+ && chown -R gaz:gaz "${GAZ_HDB}" "${GAZ_WDB}" "${GAZ_TPLOG}" "${GAZ_LOG}" /mnt/state
 
 # `tq` in an interactive container shell: a q session that is a TorQ process on
 # this stack, rather than the bare kdb+ that `q` gives you. Takes an optional

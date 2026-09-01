@@ -84,6 +84,10 @@ services:
       # The recovery log gets its own volume: local block storage, never the
       # shared filesystem. In AWS this is an EBS io2/gp3 volume.
       - tplog:/mnt/tplog
+      # Feed state — which (zone, delivery) points have already been published.
+      # Without it a restart re-ingests the whole ENTSO-E window and the power
+      # table fills with duplicate delivery periods.
+      - state:/mnt/state
 
   rdb:
     <<: *gaz
@@ -156,6 +160,7 @@ volumes:
   hdb:
   wdb:
   tplog:
+  state:
 
 secrets:
   kxlic:
