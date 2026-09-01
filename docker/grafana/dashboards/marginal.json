@@ -6,7 +6,7 @@
   ],
   "timezone": "utc",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 4,
   "refresh": "10s",
   "time": {
     "from": "now-6h",
@@ -106,15 +106,15 @@
       }
     },
     {
-      "type": "timeseries",
-      "title": "Input marks (TTF gas EUR/MWh thermal, EUA carbon EUR/tCO2)",
-      "description": "The same two marks feed every plant; what separates the plants above is only their efficiency.",
+      "type": "barchart",
+      "title": "Cost split by plant \u2014 fuel vs carbon (latest)",
+      "description": "The two legs of marginal cost, both in EUR per MWh ELECTRICAL so they stack to the total. fuel = gas / efficiency; carbon = (carbon x 0.202 tCO2/MWh thermal) / efficiency. Comparable only after this conversion \u2014 the raw marks are in different units.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "gaz-rdb"
       },
       "gridPos": {
-        "h": 8,
+        "h": 10,
         "w": 24,
         "x": 0,
         "y": 11
@@ -128,6 +128,290 @@
           },
           "type": "json",
           "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "http://rdb:6002/gaz/split",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "sym",
+              "text": "plant",
+              "type": "string"
+            },
+            {
+              "selector": "fuel",
+              "text": "fuel",
+              "type": "number"
+            },
+            {
+              "selector": "carbon",
+              "text": "carbon",
+              "type": "number"
+            }
+          ],
+          "filters": []
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "decimals": 2,
+          "custom": {
+            "axisPlacement": "auto",
+            "fillOpacity": 85,
+            "gradientMode": "none",
+            "lineWidth": 1
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "fuel"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "carbon"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "xField": "plant",
+        "stacking": "normal",
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Fuel cost per MWh by plant",
+      "description": "gas / efficiency. EUR per MWh electrical.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "gaz-rdb"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 21
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "gaz-rdb"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "http://rdb:6002/gaz/fuel",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "time",
+              "text": "time",
+              "type": "timestamp_epoch"
+            },
+            {
+              "selector": "sym",
+              "text": "sym",
+              "type": "string"
+            },
+            {
+              "selector": "value",
+              "text": "value",
+              "type": "number"
+            }
+          ],
+          "filters": []
+        }
+      ],
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "sym"
+            ],
+            "keepFields": false
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "decimals": 2,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "asc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Carbon cost per MWh by plant",
+      "description": "(carbon x emissions factor) / efficiency. EUR per MWh electrical.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "gaz-rdb"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 21
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "gaz-rdb"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "http://rdb:6002/gaz/carbon",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "time",
+              "text": "time",
+              "type": "timestamp_epoch"
+            },
+            {
+              "selector": "sym",
+              "text": "sym",
+              "type": "string"
+            },
+            {
+              "selector": "value",
+              "text": "value",
+              "type": "number"
+            }
+          ],
+          "filters": []
+        }
+      ],
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "sym"
+            ],
+            "keepFields": false
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "decimals": 2,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "asc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "TTF gas \u2014 fuel cost",
+      "description": "Dutch TTF, EUR per MWh THERMAL. This is the fuel input, before dividing by plant efficiency: at 58% efficiency a 32 EUR/MWh gas price contributes ~55 EUR/MWh electrical.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "gaz-rdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 30
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "gaz-rdb"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
           "format": "table",
           "url": "http://rdb:6002/gaz/marks",
           "url_options": {
@@ -145,25 +429,23 @@
               "selector": "gas",
               "text": "gas",
               "type": "number"
-            },
-            {
-              "selector": "carbon",
-              "text": "carbon",
-              "type": "number"
             }
           ],
-          "filters": [],
-          "parser": "backend"
+          "filters": []
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "currencyEUR",
           "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          },
           "custom": {
             "drawStyle": "line",
             "lineWidth": 2,
-            "fillOpacity": 0,
+            "fillOpacity": 10,
             "showPoints": "never"
           }
         },
@@ -175,7 +457,80 @@
           "placement": "bottom"
         },
         "tooltip": {
-          "mode": "multi"
+          "mode": "single"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "EUA carbon",
+      "description": "EU allowances, EUR per tonne CO2 \u2014 a different unit from gas, which is why these are separate panels rather than two lines on one axis. It reaches marginal cost via the emissions factor: carbon x 0.202 tCO2/MWh thermal, then divided by efficiency.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "gaz-rdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 30
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "gaz-rdb"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "http://rdb:6002/gaz/marks",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "time",
+              "text": "time",
+              "type": "timestamp_epoch"
+            },
+            {
+              "selector": "carbon",
+              "text": "carbon",
+              "type": "number"
+            }
+          ],
+          "filters": []
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
         }
       }
     }

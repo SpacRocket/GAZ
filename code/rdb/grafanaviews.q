@@ -32,8 +32,15 @@
 
 gv_power  :([] gvtime:`timestamp$(); sym:`g#`symbol$(); price:`float$());
 
+// `fuel` and `carboncost` are the two halves of `marginal`, both in EUR per
+// MWh ELECTRICAL so they are comparable and additive — unlike the raw gas and
+// carbon marks, which are per MWh thermal and per tonne CO2 respectively.
+//   fuel       = gas / efficiency
+//   carboncost = (carbon * ef) / efficiency
+//   marginal   = fuel + carboncost
 gv_marginal:([] gvtime:`timestamp$(); sym:`g#`symbol$();
-                marginal:`float$(); gas:`float$(); carbon:`float$());
+                marginal:`float$(); fuel:`float$(); carboncost:`float$();
+                gas:`float$(); carbon:`float$());
 
 // --- refresh -------------------------------------------------------------
 
@@ -70,8 +77,10 @@ gv_marginal:([] gvtime:`timestamp$(); sym:`g#`symbol$();
   if[(null g) or null c; :0];          // nothing marked yet, nothing to sample
   p:0!.gaz.plants;
   n:count p;
+  f:g % p`efficiency;                    // fuel leg,   EUR/MWh electrical
+  cc:(c * p`ef) % p`efficiency;          // carbon leg, EUR/MWh electrical
   `gv_marginal upsert ([] gvtime:n#.z.p; sym:p`plant;
-                          marginal:.gaz.marginalcost[g;c;p`ef;p`efficiency];
+                          marginal:f+cc; fuel:f; carboncost:cc;
                           gas:n#g; carbon:n#c);
   if[.gv.maxrows<count gv_marginal;
     `gv_marginal set .gv.maxrows sublist gv_marginal];

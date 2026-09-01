@@ -13,6 +13,9 @@
 //   GET /gaz/power     day-ahead power price by bidding zone
 //   GET /gaz/marginal  marginal cost per MWh electrical, by plant
 //   GET /gaz/marks     the gas and carbon marks driving marginal cost
+//   GET /gaz/fuel      the fuel leg of marginal cost, by plant
+//   GET /gaz/carbon    the carbon leg of marginal cost, by plant
+//   GET /gaz/split     latest fuel/carbon split per plant (for a bar chart)
 //
 // LONG format on purpose — [{time; sym; value}] — not one column per series.
 // The schema then stays fixed however many plants or zones exist, so a new
@@ -48,7 +51,23 @@
   t:select from gv_marginal where sym=first sym;
   .j.j flip `time`gas`carbon!(.gz.ms t`gvtime; t`gas; t`carbon) };
 
-.gz.index:{.j.j enlist[`paths]!enlist ("/gaz/power";"/gaz/marginal";"/gaz/marks")};
+.gz.fuel:{
+  if[not `gv_marginal in tables[]; :"[]"];
+  .gz.long[gv_marginal`gvtime; gv_marginal`sym; gv_marginal`fuel] };
+
+.gz.carbonleg:{
+  if[not `gv_marginal in tables[]; :"[]"];
+  .gz.long[gv_marginal`gvtime; gv_marginal`sym; gv_marginal`carboncost] };
+
+// Latest sample per plant, as a non-time frame: one row per plant with the two
+// legs side by side. Shaped for a stacked bar chart, where the question is
+// "how much of THIS plant's cost is carbon" rather than how it moved.
+.gz.split:{
+  if[not `gv_marginal in tables[]; :"[]"];
+  t:0!select last fuel, last carboncost by sym from gv_marginal;
+  .j.j flip `sym`fuel`carbon!(string t`sym; t`fuel; t`carboncost) };
+
+.gz.index:{.j.j enlist[`paths]!enlist ("/gaz/power";"/gaz/marginal";"/gaz/marks";"/gaz/fuel";"/gaz/carbon";"/gaz/split")};
 
 // Route a GET. q hands .z.ph the path without a leading slash, but accept both
 // so a hand-typed URL behaves the same.
@@ -59,6 +78,9 @@
   $[p like "gaz/power*";    .gz.power[];
     p like "gaz/marginal*"; .gz.marginal[];
     p like "gaz/marks*";    .gz.marks[];
+    p like "gaz/fuel*";     .gz.fuel[];
+    p like "gaz/carbon*";   .gz.carbonleg[];
+    p like "gaz/split*";    .gz.split[];
     p like "gaz*";          .gz.index[];
     ()] };
 
