@@ -162,23 +162,17 @@ services:
   # Not built from the gaz Dockerfile, so no <<: *gaz here: it needs no q, no
   # licence and none of the data volumes.
   grafana:
-    image: grafana/grafana:10.4.14
+    image: grafana/grafana:11.6.0
     hostname: grafana
     depends_on: [rdb]
     ports:
       - "3000:3000"
     environment:
-      GF_INSTALL_PLUGINS: grafana-simple-json-datasource
-      # Pinned to 10.4 deliberately. TorQ's grafana.q implements the SimpleJSON
-      # datasource API, and the only plugin that speaks it is Angular-based.
-      # Grafana 11.6 does not merely disable Angular — it removed the
-      # angular_support_enabled setting altogether, so the plugin cannot be
-      # loaded there at any price. 10.4 still honours it.
-      #
-      # This is a dead end, not a resting place: when 10.4 ages out the options
-      # are the Infinity datasource parsing TorQ's JSON, or a small flat-JSON
-      # endpoint in q that a modern datasource can read directly.
-      GF_PLUGINS_ANGULAR_SUPPORT_ENABLED: "true"
+      # Infinity: a maintained React datasource that reads the plain JSON the
+      # RDB serves at /gaz/*. Replaces grafana-simple-json-datasource, which is
+      # Angular-based — Grafana warns on every dashboard that uses it, disabled
+      # Angular by default in 11 and removed the opt-out entirely in 11.6.
+      GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource
       GF_SECURITY_ADMIN_USER: ${GF_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GF_ADMIN_PASSWORD:-admin}
       # Local dashboards only; nothing here should phone home.

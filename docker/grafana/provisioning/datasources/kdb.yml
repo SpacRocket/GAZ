@@ -1,26 +1,25 @@
-# Grafana talks to the RDB, not the gateway.
+# Grafana reads plain JSON from the RDB, not the gateway.
 #
-# The gateway routes queries but holds no tables of its own, and TorQ's
-# grafana.q enumerates tables[] locally — a datasource pointed at 6007 finds
-# nothing to plot. The RDB holds today's ticking data, which is what a live
-# dashboard wants.
+# The gateway routes queries but holds no tables of its own, so there is
+# nothing there to chart. The RDB holds today's ticking data and serves the
+# derived views over HTTP — kdb+ serves IPC and HTTP on the same port, so 6002
+# is both the q handle and the dashboard endpoint, with no extra listener.
 #
-# kdb+ serves IPC and HTTP on the same port, so 6002 is both the q handle and
-# the Grafana endpoint. TorQ's handler keys off the X-Grafana-Org-Id header to
-# tell a Grafana POST from any other HTTP request.
+# Infinity rather than the SimpleJSON plugin: that one is Angular-based, which
+# Grafana 11.6 refuses to load at all. See code/rdb/http.q.
 apiVersion: 1
 
 datasources:
   - name: gaz-rdb
-    # Fixed uid so the provisioned dashboard can reference it; without this
-    # Grafana generates a random one and the panel resolves to nothing.
+    # Fixed uid so provisioned dashboards can reference it; without this
+    # Grafana generates a random one and panels resolve to nothing.
     uid: gaz-rdb
-    type: grafana-simple-json-datasource
+    type: yesoreyeram-infinity-datasource
     access: proxy
-    url: http://rdb:6002
     isDefault: true
     editable: true
     jsonData:
-      httpHeaderName1: "X-Grafana-Org-Id"
-    secureJsonData:
-      httpHeaderValue1: "1"
+      auth_method: none
+      global_queries: []
+      allowedHosts:
+        - http://rdb:6002
