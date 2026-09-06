@@ -210,6 +210,12 @@ def main(argv=None):
         action="store_true",
         help="do not clamp the range short of what the live feed is polling",
     )
+    p.add_argument(
+        "--strict-range",
+        action="store_true",
+        help="publish only deliveries inside the requested range, discarding "
+        "the neighbouring market days ENTSO-E returns with them",
+    )
     args = p.parse_args(argv)
 
     if not ep.API_KEY:
@@ -272,6 +278,31 @@ def main(argv=None):
         # operator typed, so progress lines can be compared with the request.
         span = f"{a:%Y-%m-%d}..{(b - dt.timedelta(days=1)):%Y-%m-%d}"
         rows = _collect(zones, a, b, seen)
+        if args.strict_range:
+            # ENTSO-E answers in whole CET market days, so a request for one
+            # day comes back with an hour or two of its neighbours attached.
+            # Normally those are kept — they are real prices and the ledger
+            # stops the next chunk resending them. But when you are REPAIRING a
+            # single day, the neighbours are days that already loaded fine, and
+            # keeping them republishes hundreds of rows that are already in the
+            # database purely as duplicates.
+            #
+            # The discarded keys are removed from `seen` as well as from `rows`:
+            # _collect adds every key it yields, and leaving them marked as seen
+            # would tell a later run those neighbours are done when they were
+            # never published.
+            keep, drop = [], []
+            for r in rows:
+                (keep if a.replace(tzinfo=None) <= r[1] < b.replace(tzinfo=None) else drop).append(r)
+            for r in drop:
+                seen.discard((r[0], r[1]))
+            if drop:
+                print(
+                    f"{NAME}: {span} discarding {len(drop)} point(s) outside "
+                    f"the requested range (--strict-range)",
+                    flush=True,
+                )
+            rows = keep
         if not rows:
             print(f"{NAME}: {span} nothing new", flush=True)
             continue
