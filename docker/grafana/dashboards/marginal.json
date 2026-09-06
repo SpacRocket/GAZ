@@ -6,10 +6,10 @@
   ],
   "timezone": "utc",
   "schemaVersion": 39,
-  "version": 4,
-  "refresh": "10s",
+  "version": 5,
+  "refresh": "30s",
   "time": {
-    "from": "now-6h",
+    "from": "now-30d",
     "to": "now"
   },
   "panels": [

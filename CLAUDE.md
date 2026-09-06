@@ -13,6 +13,8 @@ make start / stop / restart / status
 make start P=rdb1     # single process
 bin/gaz print <proc>  # show the generated q command line — first debugging step
 bin/gaz tail <proc>
+
+make backfill FROM=2026-01-01 TO=2026-06-30   # load ENTSO-E history (inclusive)
 ```
 
 Query the gateway on port 6007. Base port is `KDBBASEPORT` (6000); every
@@ -77,6 +79,25 @@ rediscovered.
 - **`TORQPROCESSES` selects the deployment topology**, so `env.sh` must not set
   it unconditionally. It used to, which silently made the containers use
   `appconfig/process.csv` instead of `docker/process.csv`.
+- **`set` takes a SYMBOL on the left.** `` `.gv.hist set x `` assigns;
+  `.gv.hist set x` — the bare name, so the table's *value* — neither assigns
+  nor errors. It silently does nothing, so the only symptom is a view that
+  stays empty for ever.
+- **`@[f;(a;b);err]` passes the pair as ONE argument.** To apply a two-argument
+  function with an error trap use `.[f;(a;b);err]`. Written with `@`,
+  `.servers.gethandlebytype` returns a *projection* rather than a handle — no
+  error, and `null` on it is false, so every guard downstream passes and the
+  failure surfaces somewhere else entirely.
+- **Backfilled prices land in TODAY's partition.** `code/tick/backfill_power.py`
+  publishes through the tickerplant like every other feed — deliberately, since
+  writing the HDB directly would break the single-writer rule the cloud layout
+  depends on. But the STP stamps `time` itself, so a year of history all gets
+  stamped now. `delivery` is the real time axis for `power`; query on it, never
+  on `date`. Idempotent via `/mnt/state/backfill_seen.txt`, and it reads
+  `entsoe_seen.txt` too so it cannot duplicate what the live feed published.
+- **The image copies `/app` at build time**, so a new or edited Python handler
+  is not in a running container. `make backfill` against a stale image silently
+  runs the old code — rebuild, or `docker cp` while iterating.
 - TorQ processes redirect stdout/stderr to timestamped files in `$KDBLOG`; the
   un-suffixed `out_<proc>.log` is a symlink that can point at a stale run.
   `ls -t data/logs/out_<proc>_*.log | head -1` when a log looks empty.

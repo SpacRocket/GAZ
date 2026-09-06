@@ -38,6 +38,34 @@ Requires kdb+ 4.0+ on `PATH` (developed against 5.0) and a license. If your
 echo 'export QHOME=/opt/kdb' > env.local.sh
 ```
 
+## Backfilling history
+
+The ENTSO-E handler only looks at a four-day window around now — enough to
+catch tomorrow's curve when it clears, and nothing more. To load a date range
+(a fresh HDB, or a gap left by a stack that was down):
+
+```bash
+make backfill FROM=2026-01-01 TO=2026-06-30
+make backfill FROM=2026-01-01 TO=2026-06-30 ARGS="--dry-run"
+make backfill FROM=2026-01-01 TO=2026-06-30 ARGS="--zones DE_LU,FR"
+```
+
+Both dates are inclusive. It runs inside the `stp` container, because that is
+where PyKX and the tickerplant are — **rebuild the image after changing the
+loader**, since `/app` is copied in at build time.
+
+It publishes to the tickerplant like any other feed rather than writing the HDB
+directly, which keeps the sort process the only writer against the shared
+filesystem (see `infra/README.md`). Two things follow from that:
+
+- `time` is stamped by the tickerplant, so backfilled rows are stamped *now*
+  and land in **today's** partition however old the prices are. `delivery` is
+  the real time axis — query `power` on `delivery`, never on `date`.
+- Re-running a range is a no-op. Every published `(zone, delivery)` is recorded
+  in `/mnt/state/backfill_seen.txt`, and the loader also reads the live feed's
+  state file so a range running up to the present will not duplicate what the
+  feed just published. The end is clamped short of the live window by default.
+
 ## Layout
 
 | Path | What it is |
@@ -47,7 +75,8 @@ echo 'export QHOME=/opt/kdb' > env.local.sh
 | `appconfig/process.csv` | Which processes exist, their types and ports |
 | `appconfig/settings/` | Config overrides, layered by proctype then procname |
 | `code/common/` | App library — auto-loaded into **every** process |
-| `code/tick/feed.q` | Synthetic feed handler; replace with your adapter |
+| `code/tick/entsoe_power.py` | Live ENTSO-E day-ahead handler; `sim_*.py` alongside it |
+| `code/tick/backfill_power.py` | One-shot loader for a date range of ENTSO-E history |
 | `bin/gaz` | Process launcher (portable replacement for `torq.sh`) |
 | `tests/unit/` | k4unit CSVs — pure functions, no stack required |
 | `tests/integration/` | k4unit CSVs — assert against a running stack |

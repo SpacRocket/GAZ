@@ -12,7 +12,7 @@ TORQ_TEST = $$QCMD $$TORQHOME/torq.q -procfile $$TORQPROCESSES \
             -load $$GAZ_TESTS/helpers.q -noredirect
 
 .PHONY: help bootstrap start stop restart status tail test test-unit \
-        test-integration repl clean clean-data
+        test-integration backfill repl clean clean-data
 
 help: ## Show this help
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -58,6 +58,21 @@ test-integration: ## Start the docker stack, run integration tests inside it
 	    bash -lc 'set -a && . /app/env.sh && $$QCMD $$TORQHOME/torq.q \
 	      -procfile $$TORQPROCESSES -proctype itest -procname itest1 \
 	      -load $$GAZ_TESTS/helpers.q -test $$GAZ_TESTS/integration -noredirect'
+
+# Same reasoning as test-integration: the loader is Python and needs PyKX,
+# which lives in the image and not on a dev machine. It runs inside the stp
+# container because that is where the tickerplant it publishes to is, and where
+# the state volume holding its ledger is mounted.
+#
+# Both dates are inclusive. The loader clamps the end short of whatever the
+# live feed is already polling, so overlapping ranges are safe to ask for.
+backfill: ## Backfill ENTSO-E power history: make backfill FROM=2026-01-01 TO=2026-06-30
+	@[ -n "$(FROM)" ] && [ -n "$(TO)" ] || { \
+	  echo "usage: make backfill FROM=YYYY-MM-DD TO=YYYY-MM-DD [ARGS=--dry-run]" >&2; \
+	  exit 2; }
+	@set -a && . ./env.sh && \
+	  docker compose -f docker/docker-compose.yml exec -T stp \
+	    python3 /app/code/tick/backfill_power.py $(FROM) $(TO) $(ARGS)
 
 repl: ## Interactive q as a TorQ process, connected to the running stack
 	@$(E) bin/gaz repl itest1

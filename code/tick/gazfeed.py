@@ -51,25 +51,35 @@ TP_HOST = os.environ.get("GAZ_TP_HOST", "localhost")
 TP_PORT = int(os.environ.get("GAZ_TP_PORT", os.environ.get("KDBBASEPORT", 6000)))
 
 
-def connect(name):
+def connect(name, attempts=None):
     """Block until the tickerplant answers.
 
     The q feed gets this from .servers.startupdepcycles; a Python process gets
     nothing for free. The container starts the tickerplant and its handlers at
     once, so a few seconds of connection refused while the tp loads its schema
     is normal, not an error.
+
+    attempts=None retries forever, which is what a supervised long-lived
+    handler wants — there is nobody to report to and the tickerplant will come
+    back. A one-shot script (backfill_power.py) passes a bound instead, so an
+    operator running it against a stopped stack gets a non-zero exit rather
+    than a process that looks busy for ever.
     """
+    n = 0
     while True:
         try:
             conn = kx.SyncQConnection(TP_HOST, TP_PORT, no_ctx=True)
             print(f"{name}: connected to tickerplant {TP_HOST}:{TP_PORT}", flush=True)
             return conn
         except BaseException as e:  # noqa: BLE001 - any failure means retry
+            n += 1
+            if attempts is not None and n >= attempts:
+                raise
             print(f"{name}: tickerplant not up ({e}), retrying in 2s", flush=True)
             time.sleep(2)
 
 
-def publish(conn, table, columns):
+def publish(conn, table, columns, wait=False):
     """Send one batch to the tickerplant.
 
     Two rules the tickerplant enforces, both of which cost a `length error or a
@@ -84,15 +94,21 @@ def publish(conn, table, columns):
     (a list of ints becomes a long vector) and the tickerplant rejects the batch
     with a type error, so build the vectors explicitly.
 
-    wait=False makes this a genuine async publish. A synchronous call would
-    block the handler on the tickerplant's reply and, worse, make the
-    tickerplant wait on the handler.
+    wait=False, the default, makes this a genuine async publish. A synchronous
+    call would block the handler on the tickerplant's reply and, worse, make the
+    tickerplant wait on the handler. That is the right trade for a live handler
+    sending a handful of rows on a timer.
+
+    A bulk loader wants the opposite and passes wait=True: back-pressure is the
+    point when you are pushing months of history through in a tight loop, and
+    the round trip is the only confirmation the tickerplant took the batch
+    before the caller records it as published.
 
     Note errmode:1b means a rejected batch does NOT raise here — it is written
     to stp1_segmentederrorlogfile* in the tplog dir. If a handler looks healthy
     but nothing arrives downstream, check that file first.
     """
-    conn(".u.upd", table, columns, wait=False)
+    conn(".u.upd", table, columns, wait=wait)
 
 
 def run(name, table, interval, make_batch):

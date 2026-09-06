@@ -9,14 +9,14 @@
   "version": 2,
   "refresh": "30s",
   "time": {
-    "from": "now-1d",
+    "from": "now-30d",
     "to": "now+2d"
   },
   "panels": [
     {
       "type": "timeseries",
       "title": "Day-ahead power price by bidding zone",
-      "description": "Charted against DELIVERY period, not ingest time. ENTSO-E publishes a whole day in one burst, so every row shares an arrival timestamp; delivery is the axis that means something. Falls back to simulated prices when ENTSO-E is unavailable.",
+      "description": "Charted against DELIVERY period, not ingest time. ENTSO-E publishes a whole day in one burst, so every row shares an arrival timestamp; delivery is the axis that means something. Falls back to simulated prices when ENTSO-E is unavailable. Combines the RDB's intraday data with the last 30 partitions from the HDB (.gv.histdays), so the window can be widened past today.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "gaz-rdb"
