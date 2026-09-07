@@ -110,13 +110,19 @@
 // us directly is cross-origin. .h.hy does not emit the header, so responses
 // below are built by hand.
 //
-// Worth knowing before relying on a browser POST: q answers OPTIONS with
-// 501 Not Implemented and gives no hook to change that — .z.ph and .z.pp cover
-// GET and POST only. So a preflighted request never reaches us. A request stays
-// un-preflighted ("simple") only while its Content-Type is text/plain,
-// application/x-www-form-urlencoded or multipart/form-data and it carries no
-// custom headers. Send JSON as text/plain, or route through Grafana's backend
-// (the Infinity datasource proxies server-side, where CORS does not apply).
+// Preflight. By DEFAULT q answers OPTIONS with 501 Not Implemented — .z.ph and
+// .z.pp cover GET and POST only — so a preflighted browser request never
+// arrives, and the failure is invisible from the server: nothing is logged
+// because nothing was ever handled.
+//
+// .z.pm is the hook. It takes (method; path; headers) and catches the methods
+// the other two do not, OPTIONS among them. It is not defined until you set it,
+// which is why `\`pm in key \`.z` reads false on a process that has never
+// installed one — absence there is not evidence the build lacks support.
+//
+// With the handler below a preflighted request works, so the Content-Type no
+// longer has to stay inside the CORS "simple request" set. It is still sent as
+// text/plain by the panel, which avoids the preflight round trip entirely.
 .gz.cors:"Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: *\r\n";
 
 .gz.ok:{"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n",.gz.cors,"\r\n",x};
@@ -148,10 +154,18 @@
 // a trading decision, and a UI that pre-loads a profit assumption invites it to
 // be sent unread.
 .gz.grid:{[a]
-  pl:`$a[`plant];
-  if[not pl in exec plant from .gaz.plants; :.gz.bad "unknown plant"];
+  // An unresolved dashboard variable arrives literally as "$plant". Answer
+  // that with an empty 200, not a 400: Infinity turns any non-2xx into a panel
+  // ERROR, so a variable that has not been substituted yet during dashboard
+  // load would flash a failure that looks like a broken endpoint. "No data" is
+  // the honest answer to "no plant selected". A genuine typo still 400s, so a
+  // real mistake is not swallowed.
+  raw:a[`plant];
+  if[(0=count raw) or "$"~first raw; :"[]"];
+  pl:`$raw;
+  if[not pl in exec plant from .gaz.plants; '"unknown plant: ",raw];
   d:"D"$a[`date];
-  if[null d; :.gz.bad "bad or missing date - expected YYYY-MM-DD"];
+  if[null d; '"bad or missing date - expected YYYY-MM-DD"];
   rec:.gaz.plants pl;
   periods:("p"$d)+0D00:15*til 96;
 
@@ -222,14 +236,35 @@
     p:("p"$d)+f+0D00:15*til `long$(t-f)%0D00:15;
     ([] delivery:p; mw:count[p]#"f"$b`mw; price:count[p]#"f"$b`price) }[d] each bl };
 
+// A THIRD shape, and the one the Grafana panel actually sends:
+//
+//   {"plant":"Sloe","biddate":"2026-09-08","from":"06:00","to":"10:00",
+//    "mw":400,"price":85}
+//
+// Business Forms posts a flat {elementId: value} object when payloadMode is
+// "all". Accepting that directly is deliberate: the alternative is custom
+// JavaScript in the panel to reshape it, and that JS runs only in a browser —
+// it cannot be tested from here, and a typo in it fails silently with nothing
+// sent and nothing logged. Server-side shaping is testable with curl.
+//
+// `biddate` as well as `date` because the form element is named biddate to
+// match the dashboard variable.
 .gz.submit:{[body]
   r:@[.j.k; body; {'"body is not valid JSON: ",x}];
-  if[not all `plant`date in key r; '"need plant and date"];
+  if[not `plant in key r; '"need plant"];
   pl:`$r[`plant];
-  d:"D"$r[`date];
+  dk:$[`date in key r; `date; `biddate];
+  if[not dk in key r; '"need date (or biddate)"];
+  d:"D"$r dk;
   if[null d; '"bad date - expected YYYY-MM-DD"];
+
   t:$[`blocks in key r;
+      // explicit blocks: [{from,to,mw,price}, ...]
       .gz.parseblocks[d;r`blocks];
+    all `from`to in key r;
+      // flat single block, as the form panel sends it
+      .gz.parseblocks[d; enlist `from`to`mw`price!(r`from;r`to;r`mw;r`price)];
+      // neither: the whole delivery day at one price
       [p:("p"$d)+0D00:15*til 96;
        ([] delivery:p; mw:count[p]#"f"$r`mw; price:count[p]#"f"$r`price)]];
   if[0=count t; '"no periods to submit"];
@@ -239,9 +274,13 @@
   p:$["/"~first p; 1_p; p];
   a:.gz.args p;
   base:(p?"?")#p;
-  $[base like "gaz/store*"; .gz.ok .gz.store[];
-    base like "gaz/grid*";  [r:.gz.grid a; $[r like "*\"error\"*"; r; .gz.ok r]];
-    base like "gaz/bids*";  .gz.ok .gz.bids[];
+  // Handlers return a JSON BODY, or signal. Wrapping happens here and only
+  // here — an earlier version had .gz.grid return a full response which this
+  // then wrapped a second time, putting the status line and headers inside the
+  // body. One place decides what an HTTP response looks like.
+  $[base like "gaz/store*";  @[{.gz.ok .gz.store[]};   ::;   {.gz.bad x}];
+    base like "gaz/grid*";   @[{.gz.ok .gz.grid x};    a;    {.gz.bad x}];
+    base like "gaz/bids*";   @[{.gz.ok .gz.bids[]};    ::;   {.gz.bad x}];
     base like "gaz/submit*"; @[{.gz.ok .j.j .gz.submit x}; body; {.gz.bad x}];
     ()] };
 
@@ -251,6 +290,18 @@
   r:@[{.gz.route2[x;""]}; first x; {[e] ()}];
   $[count r; r; f x]
  }[@[value; .dotz.getcommand[`.z.ph]; {{[x] x}}]]];
+
+// OPTIONS, and anything else that is neither GET nor POST. A browser sends this
+// before a cross-origin POST it considers non-simple, and refuses to send the
+// POST at all unless the answer allows the origin, method and headers.
+//
+// 204 with no body is the conventional answer; Content-Length: 0 is explicit so
+// no client waits on a body that never comes.
+.dotz.set[`.z.pm; {[f;x]
+  $[`OPTIONS~first x;
+    "HTTP/1.1 204 No Content\r\n",.gz.cors,
+      "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\nContent-Length: 0\r\n\r\n";
+    f x] }[@[value; .dotz.getcommand[`.z.pm]; {{[x] "HTTP/1.1 501 Not Implemented\r\nContent-Length: 0\r\n\r\n"}}]]];
 
 // POST. q hands .z.pp the PATH AND BODY CONCATENATED WITH A SPACE in x[0] —
 // not as separate arguments, and not with the body in the header dict. So the

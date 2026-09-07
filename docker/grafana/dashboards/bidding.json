@@ -6,7 +6,7 @@
   ],
   "timezone": "utc",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 3,
   "refresh": "30s",
   "time": {
     "from": "now-6h",
@@ -360,10 +360,10 @@
     {
       "type": "volkovlabs-form-panel",
       "title": "Submit an offer",
-      "description": "Publishes through the tickerplant and earmarks the fuel the block would burn. Re-offering a period you already bid releases the earlier reservation first, so revising an offer is safe. Rejected if the block exceeds plant capacity or available fuel.",
+      "description": "Publishes through the tickerplant and earmarks the fuel the block would burn. `To` is EXCLUSIVE: 06:00-10:00 is 16 periods, not 17. Re-offering a period you already bid releases the earlier reservation first, so revising is safe. Rejected if the block exceeds plant capacity or available fuel.",
       "datasource": {
-        "type": "yesoreyeram-infinity-datasource",
-        "uid": "gaz-rdb"
+        "type": "datasource",
+        "uid": "grafana"
       },
       "gridPos": {
         "h": 12,
@@ -371,7 +371,17 @@
         "x": 14,
         "y": 9
       },
-      "targets": [],
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "datasource",
+            "uid": "grafana"
+          },
+          "queryType": "list",
+          "path": ""
+        }
+      ],
       "options": {
         "sync": false,
         "layout": {
@@ -391,8 +401,8 @@
           "method": "POST",
           "url": "http://localhost:6002/gaz/submit",
           "contentType": "text/plain",
-          "payloadMode": "custom",
-          "getPayload": "// Block offer. `to` is EXCLUSIVE: 06:00-10:00 is 16 periods, not 17.\nreturn {\n  plant: elementsMap.plant.value,\n  date:  elementsMap.biddate.value,\n  blocks: [{\n    from:  elementsMap.from.value,\n    to:    elementsMap.to.value,\n    mw:    Number(elementsMap.mw.value),\n    price: Number(elementsMap.price.value)\n  }]\n};",
+          "payloadMode": "all",
+          "getPayload": "",
           "code": ""
         },
         "reset": {
