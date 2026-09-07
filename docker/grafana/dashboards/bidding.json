@@ -1,0 +1,788 @@
+{
+  "uid": "gaz-bidding",
+  "title": "Bidding",
+  "tags": [
+    "gaz"
+  ],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "plant",
+        "label": "Plant",
+        "type": "custom",
+        "current": {
+          "text": "Sloe",
+          "value": "Sloe"
+        },
+        "query": "Landivisiau,Saint_Avold,Toul,Bayet,Pont_sur_Sambre,Marcinelle,Castejon_1_3,Sloe,Rijnmond,MaasStroom,Enecogen",
+        "options": [],
+        "includeAll": false,
+        "multi": false
+      },
+      {
+        "name": "biddate",
+        "label": "Delivery date",
+        "type": "textbox",
+        "current": {
+          "text": "2026-09-08",
+          "value": "2026-09-08"
+        },
+        "query": "2026-09-08",
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "bargauge",
+      "title": "Fuel in storage \u2014 available to offer",
+      "description": "MWh THERMAL. `available` is physical stock minus fuel already earmarked against open offers, so it is what you may still bid. Submitting reserves; only dispatch burns. Full bar = the plant's on-site capacity.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "gaz-rdb"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "gaz-rdb"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://rdb:6002/gaz/store",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "filters": [],
+          "columns": [
+            {
+              "selector": "plant",
+              "text": "plant",
+              "type": "string"
+            },
+            {
+              "selector": "pct",
+              "text": "pct",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 20
+              },
+              {
+                "color": "green",
+                "value": 50
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^pct$/",
+          "values": true
+        },
+        "showUnfilled": true
+      }
+    },
+    {
+      "type": "table",
+      "title": "Storage detail (MWh thermal)",
+      "description": "physical = delivered minus burnt. reserved = earmarked against open offers. available = physical - reserved.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "gaz-rdb"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "gaz-rdb"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://rdb:6002/gaz/store",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "filters": [],
+          "columns": [
+            {
+              "selector": "plant",
+              "text": "plant",
+              "type": "string"
+            },
+            {
+              "selector": "zone",
+              "text": "zone",
+              "type": "string"
+            },
+            {
+              "selector": "capacity",
+              "text": "MW",
+              "type": "number"
+            },
+            {
+              "selector": "physical",
+              "text": "physical",
+              "type": "number"
+            },
+            {
+              "selector": "reserved",
+              "text": "reserved",
+              "type": "number"
+            },
+            {
+              "selector": "available",
+              "text": "available",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "available"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "green",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "type": "table",
+      "title": "Offer grid \u2014 $plant, $biddate (15-minute periods)",
+      "description": "One row per 15-minute delivery period. `marginal` is this plant's cost per MWh electrical at the current gas and carbon marks \u2014 the floor below which running loses money. `price`/`mw` are what currently stands; `reserved` is the fuel MWh thermal earmarked for that period.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "gaz-rdb"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 14,
+        "x": 0,
+        "y": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "gaz-rdb"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://rdb:6002/gaz/grid?plant=$plant&date=$biddate",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "filters": [],
+          "columns": [
+            {
+              "selector": "delivery",
+              "text": "delivery",
+              "type": "string"
+            },
+            {
+              "selector": "marginal",
+              "text": "marginal",
+              "type": "number"
+            },
+            {
+              "selector": "price",
+              "text": "offered",
+              "type": "number"
+            },
+            {
+              "selector": "mw",
+              "text": "MW",
+              "type": "number"
+            },
+            {
+              "selector": "reserved",
+              "text": "reserved MWh th",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2,
+          "custom": {
+            "align": "auto",
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "marginal"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyEUR"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "offered"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyEUR"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "text",
+                      "value": null
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "type": "volkovlabs-form-panel",
+      "title": "Submit an offer",
+      "description": "Publishes through the tickerplant and earmarks the fuel the block would burn. Re-offering a period you already bid releases the earlier reservation first, so revising an offer is safe. Rejected if the block exceeds plant capacity or available fuel.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "gaz-rdb"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 10,
+        "x": 14,
+        "y": 9
+      },
+      "targets": [],
+      "options": {
+        "sync": false,
+        "layout": {
+          "variant": "single",
+          "padding": 10,
+          "sectionVariant": "default"
+        },
+        "initial": {
+          "method": "-",
+          "contentType": "application/json",
+          "code": "",
+          "highlight": false,
+          "highlightColor": "red",
+          "payloadMode": "all"
+        },
+        "update": {
+          "method": "POST",
+          "url": "http://localhost:6002/gaz/submit",
+          "contentType": "text/plain",
+          "payloadMode": "custom",
+          "getPayload": "// Block offer. `to` is EXCLUSIVE: 06:00-10:00 is 16 periods, not 17.\nreturn {\n  plant: elementsMap.plant.value,\n  date:  elementsMap.biddate.value,\n  blocks: [{\n    from:  elementsMap.from.value,\n    to:    elementsMap.to.value,\n    mw:    Number(elementsMap.mw.value),\n    price: Number(elementsMap.price.value)\n  }]\n};",
+          "code": ""
+        },
+        "reset": {
+          "variant": "hidden",
+          "icon": "process",
+          "text": "Reset",
+          "backgroundColor": "purple",
+          "foregroundColor": "yellow"
+        },
+        "submit": {
+          "variant": "primary",
+          "icon": "cloud-upload",
+          "text": "Submit offer",
+          "backgroundColor": "purple",
+          "foregroundColor": "yellow"
+        },
+        "saveDefault": {
+          "variant": "hidden",
+          "icon": "save",
+          "text": "Save default"
+        },
+        "buttonGroup": {
+          "orientation": "center",
+          "size": "md"
+        },
+        "confirmModal": {
+          "enabled": true,
+          "title": "Confirm offer",
+          "body": "This publishes the offer and reserves the fuel it would burn.",
+          "columns": {
+            "include": [
+              "name",
+              "newValue"
+            ],
+            "name": "Field",
+            "newValue": "Value"
+          },
+          "confirm": "Send",
+          "cancel": "Cancel",
+          "elementDisplayMode": "modified"
+        },
+        "elementValueChanged": "",
+        "resetAction": {
+          "mode": "initial",
+          "code": "",
+          "confirm": false
+        },
+        "elements": [
+          {
+            "id": "plant",
+            "title": "Plant",
+            "type": "select",
+            "section": "",
+            "uid": "plant",
+            "value": "Sloe",
+            "showIf": "",
+            "disableIf": "",
+            "optionsSource": "Custom",
+            "options": [
+              {
+                "label": "Landivisiau",
+                "value": "Landivisiau",
+                "id": "Landivisiau"
+              },
+              {
+                "label": "Saint_Avold",
+                "value": "Saint_Avold",
+                "id": "Saint_Avold"
+              },
+              {
+                "label": "Toul",
+                "value": "Toul",
+                "id": "Toul"
+              },
+              {
+                "label": "Bayet",
+                "value": "Bayet",
+                "id": "Bayet"
+              },
+              {
+                "label": "Pont_sur_Sambre",
+                "value": "Pont_sur_Sambre",
+                "id": "Pont_sur_Sambre"
+              },
+              {
+                "label": "Marcinelle",
+                "value": "Marcinelle",
+                "id": "Marcinelle"
+              },
+              {
+                "label": "Castejon_1_3",
+                "value": "Castejon_1_3",
+                "id": "Castejon_1_3"
+              },
+              {
+                "label": "Sloe",
+                "value": "Sloe",
+                "id": "Sloe"
+              },
+              {
+                "label": "Rijnmond",
+                "value": "Rijnmond",
+                "id": "Rijnmond"
+              },
+              {
+                "label": "MaasStroom",
+                "value": "MaasStroom",
+                "id": "MaasStroom"
+              },
+              {
+                "label": "Enecogen",
+                "value": "Enecogen",
+                "id": "Enecogen"
+              }
+            ]
+          },
+          {
+            "id": "biddate",
+            "title": "Delivery date (YYYY-MM-DD)",
+            "type": "string",
+            "section": "",
+            "uid": "biddate",
+            "value": "",
+            "showIf": "",
+            "disableIf": ""
+          },
+          {
+            "id": "from",
+            "title": "From (HH:MM)",
+            "type": "string",
+            "section": "",
+            "uid": "from",
+            "value": "06:00",
+            "showIf": "",
+            "disableIf": ""
+          },
+          {
+            "id": "to",
+            "title": "To (HH:MM, exclusive)",
+            "type": "string",
+            "section": "",
+            "uid": "to",
+            "value": "10:00",
+            "showIf": "",
+            "disableIf": ""
+          },
+          {
+            "id": "mw",
+            "title": "MW offered",
+            "type": "number",
+            "section": "",
+            "uid": "mw",
+            "value": 400,
+            "min": 0,
+            "max": 1000,
+            "showIf": "",
+            "disableIf": ""
+          },
+          {
+            "id": "price",
+            "title": "Offer price (EUR/MWh)",
+            "type": "number",
+            "section": "",
+            "uid": "price",
+            "value": 85,
+            "min": 0,
+            "max": 5000,
+            "showIf": "",
+            "disableIf": ""
+          }
+        ]
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Marks behind the offer price \u2014 gas and carbon",
+      "description": "TTF gas EUR/MWh THERMAL and EUA carbon EUR/tCO2. These set the marginal cost shown in the grid; the two are on different axes because the units differ.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "gaz-rdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 21
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "gaz-rdb"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://rdb:6002/gaz/marks",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "filters": [],
+          "columns": [
+            {
+              "selector": "time",
+              "text": "time",
+              "type": "timestamp_epoch"
+            },
+            {
+              "selector": "gas",
+              "text": "gas",
+              "type": "number"
+            },
+            {
+              "selector": "carbon",
+              "text": "carbon",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "decimals": 2,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "carbon"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "gas"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "type": "table",
+      "title": "Offers submitted",
+      "description": "Grouped by submission (`ref`), newest first \u2014 the unit you actually think in, 'the curve I sent at 11:40'. Bids are append-only, so a revision appears as a new row and the earlier one stays on the record.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "gaz-rdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 21
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "gaz-rdb"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://rdb:6002/gaz/bids",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "filters": [],
+          "columns": [
+            {
+              "selector": "time",
+              "text": "submitted",
+              "type": "timestamp_epoch"
+            },
+            {
+              "selector": "plant",
+              "text": "plant",
+              "type": "string"
+            },
+            {
+              "selector": "zone",
+              "text": "zone",
+              "type": "string"
+            },
+            {
+              "selector": "periods",
+              "text": "periods",
+              "type": "number"
+            },
+            {
+              "selector": "mw",
+              "text": "avg MW",
+              "type": "number"
+            },
+            {
+              "selector": "price",
+              "text": "avg EUR/MWh",
+              "type": "number"
+            },
+            {
+              "selector": "from",
+              "text": "from",
+              "type": "string"
+            },
+            {
+              "selector": "to",
+              "text": "to",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2,
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "avg EUR/MWh"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyEUR"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "submitted",
+            "desc": true
+          }
+        ]
+      }
+    }
+  ]
+}

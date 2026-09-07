@@ -177,7 +177,18 @@ services:
       # The symptom is not a version error but a SystemJS 404 on
       # react/jsx-runtime, reported against whichever datasource you happen to
       # be looking at. 3.11.1 declares >=11.6.0-0.
-      GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource 3.11.1
+      # Business Forms (volkovlabs-form-panel) is what makes the bidding
+      # dashboard possible at all: Grafana has no native input panel, so
+      # without it a dashboard can only ever read. It POSTs the offer to the
+      # RDB at /gaz/submit. PINNED for the same reason Infinity is.
+      #
+      # The panel posts from the BROWSER, so the URL is localhost:6002 (the
+      # published port), not rdb:6002 (the compose network name the Grafana
+      # server would use). And the content type must stay text/plain:
+      # application/json makes it a preflighted request, and q answers OPTIONS
+      # with 501 Not Implemented with no hook to change that, so the POST
+      # would never arrive. See the CORS note in code/rdb/http.q.
+      GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource 3.11.1,volkovlabs-form-panel 4.9.0
       # Grafana 11 preinstalls Loki Explore and Pyroscope apps. Nothing here
       # uses them, and grafana-lokiexplore-app fails to load in the browser
       # (404 on react/jsx-runtime), which surfaces as a SystemJS error that

@@ -13,9 +13,10 @@
 // Loaded into the itest proctype, so `tq` gives you these straight away:
 //
 //   tq
-//   q).bid.submit[`CCGT1;`DE_LU;2026.08.31D06:00;400f;78.50]
-//   q).bid.curve[`CCGT1;`DE_LU;2026.08.31;400f;78.50]   / all 96 periods
-//   q).bid.effective[2026.08.30D10:00]                  / what stands at the gate
+//   q).bid.submit[`Sloe;2026.09.08D06:00;400f;78.50]
+//   q).bid.curve[`Sloe;2026.09.08;400f;78.50]    / all 96 periods
+//   q).bid.fuel[]                                / fuel position per plant
+//   q).bid.effective[2026.09.07D10:00]           / what stands at the gate
 //
 // Deliberately NOT in code/common/gaz.q: that file is loaded into every
 // process and is kept to pure functions so tests/unit can exercise it without
@@ -39,34 +40,41 @@ tp:{
   if[null h; '"no tickerplant reachable - is the stack up, and is this a connected proctype (tq, not make repl-isolated)?"];
   h }
 
-// One offer, one delivery period.
+// Submitting by hand now goes THROUGH THE RDB rather than straight to the
+// tickerplant. Two reasons, and the second is the important one:
 //
-// `time` is omitted on purpose — the tickerplant prepends its own, and sending
-// one makes the payload a column too wide (stplog.q:53). Every column is a
-// list of length 1 because .u.upd takes column-major data, never a table.
-// Casts rather than type assertions: `type` on an atom is negative (a
-// timestamp atom is -12h, a list 12h), so asserting on the list code rejects
-// every valid single value. Casting accepts a date or a timestamp and fails
-// with q's own message if given something that is neither.
-submit:{[plant;zone;delivery;mw;price]
-  delivery:"p"$delivery;
-  mw:"f"$mw;
-  price:"f"$price;
-  if[null delivery; '"delivery is null - pass a date or timestamp"];
-  neg[tp[]](".u.upd";`bid;
-    (enlist plant; enlist zone; enlist delivery; enlist mw; enlist price; enlist `MANUAL));
-  neg[tp[]][];
-  (`plant`zone`delivery`mw`price)!(plant;zone;delivery;mw;price) }
+//   * `bid` grew a `ref` column, so a six-column publish is now one short and
+//     the tickerplant rejects the batch with 'length.
+//   * more importantly, an offer has to earmark the fuel it would burn. That
+//     logic lives in code/rdb/bidding.q — validation, the release of any
+//     earlier reservation for the same periods, and the fuelmove rows. A
+//     second copy here would drift from it, and a hand-submitted bid that
+//     skipped the reservation would silently let the same MWh be offered twice.
+//
+// So these are thin remote calls. The RDB is the one place that knows how to
+// turn an offer into a bid plus a reservation.
+
+rdb:{
+  h:.[.servers.gethandlebytype; (`rdb;`any); {0Ni}];
+  h:first h,();
+  if[null h; '"no rdb reachable - is the stack up, and is this a connected proctype (tq)?"];
+  h }
+
+// One offer, one delivery period. `zone` is no longer an argument: the RDB
+// takes it from plants.csv, because a bid into the wrong zone is unrecoverable
+// and there is exactly one right answer for a given unit.
+submit:{[plant;delivery;mw;price]
+  rdb[](`.bid.submit; plant; enlist "p"$delivery; enlist "f"$mw; enlist "f"$price) }
 
 // The same offer across every 15-minute period of a delivery date. This is the
 // normal case: you bid a whole day, not a single quarter hour.
-curve:{[plant;zone;date;mw;price]
+curve:{[plant;date;mw;price]
   d:("p"$date)+0D00:15*til 96;
-  n:count d;
-  neg[tp[]](".u.upd";`bid;
-    (n#plant; n#zone; d; n#"f"$mw; n#"f"$price; n#`MANUAL));
-  neg[tp[]][];
-  n }
+  rdb[](`.bid.submit; plant; d; 96#"f"$mw; 96#"f"$price) }
+
+// Fuel position per plant: physical stock, what is earmarked, what is left to
+// offer. MWh THERMAL.
+fuel:{ rdb[](`.bid.state; ::) }
 
 // What actually stands at gate closure. Offers are append-only, so the
 // effective one is the LAST row before the gate, not simply the last row —

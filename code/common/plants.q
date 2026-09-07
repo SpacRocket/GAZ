@@ -31,6 +31,11 @@
 //   ef         float    tCO2 per MWh thermal burnt (natural gas ~0.202)
 //   startup    float    EUR per cold start
 //   fuel       symbol   gas today; here so the table can carry more later
-plants:1!("SSFFFFS"; enlist ",") 0: hsym `$getenv `GAZ_PLANTS
+//   fuelcap    float    on-site storage, MWh THERMAL. Roughly a day of
+//                       full-load burn (capacity/efficiency*24). It is the
+//                       CEILING, not the level — the level is derived by
+//                       summing the fuelmove ledger, because a level is state
+//                       and this file is reference data.
+plants:1!("SSFFFFSF"; enlist ",") 0: hsym `$getenv `GAZ_PLANTS
 
 \d .

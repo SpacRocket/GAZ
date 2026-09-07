@@ -34,7 +34,9 @@ units:2!flip `tab`col`unit`basis!flip (
   (`plants; `capacity   ; `MW              ; `electrical);
   (`plants; `efficiency ; `ratio           ; `LHV);
   (`plants; `ef         ; `$"tCO2/MWh"     ; `thermal);
-  (`plants; `startup    ; `EUR             ; `per_start))
+  (`plants; `startup    ; `EUR             ; `per_start);
+  (`plants; `fuelcap    ; `$"MWh"          ; `thermal_LHV);
+  (`fuelmove; `mwh      ; `$"MWh"          ; `thermal_LHV))
 
 // --- pricing -------------------------------------------------------------
 
@@ -83,6 +85,24 @@ cleanspark:{[power;gas;carbon;ef;eff] power - .gaz.marginalcost[gas;carbon;ef;ef
 // this if cycling is ever modelled, because a start is a real cost that a
 // single positive period may not cover.
 dispatch:{[power;gas;carbon;ef;eff] 0f < .gaz.cleanspark[power;gas;carbon;ef;eff]}
+
+// --- fuel ----------------------------------------------------------------
+//
+// ENTSO-E day-ahead periods are quarter hours, so a plant offering `mw` MW for
+// one period delivers mw*0.25 MWh electrical. Named rather than written as a
+// bare 0.25 wherever it is needed: the same constant sets the offer curve
+// length (96 periods) and the burn per period, and the two must not drift.
+periodhours:0.25
+
+// MWh THERMAL burnt to deliver `mw` MW electrical for `hours` hours at `eff`.
+//
+// The same efficiency conversion as marginalcost, in the other direction:
+// making 1 MWh electrical consumes 1/eff MWh thermal. Vector-friendly in every
+// argument so a whole 96-period offer curve costs one call.
+//
+// Note it takes HOURS, not periods. Passing a period count would silently
+// under-burn by a factor of four, and the units table cannot catch that.
+fuelburn:{[mw;hours;eff] (mw*hours) % eff}
 
 // --- bucketing -----------------------------------------------------------
 

@@ -62,5 +62,47 @@ bid:([]
   delivery:`timestamp$();    // the period being offered, matches power.delivery
   mw      :`float$();        // volume offered
   price   :`float$();        // offer price EUR/MWh - your marginal cost
+  ref     :`symbol$();       // submission id, ties these rows to their fuelmove
   src     :`symbol$() )      // MANUAL for a hand-entered offer
+
+// --- fuel inventory ------------------------------------------------------
+//
+// An append-only LEDGER, not a balance. The level is derived by summing this
+// table, for the same reason bids are append-only: "how much fuel did we have
+// and what did we commit it to" stays answerable, and it replays from the
+// tickerplant log like everything else. A mutable balance row would survive
+// neither a replay nor the single-writer rule the HDB layout depends on.
+//
+// `mwh` is ALWAYS POSITIVE — a magnitude, never a signed delta. The `reason`
+// carries the direction. Signing the quantity instead invites a negative
+// DELIVERY to be published by accident and read as a burn, and makes the sum
+// of the whole column meaningless. Each figure is a clean sum over a subset:
+//
+//   physical  = sum DELIVERY - sum BURN      what is actually in the tank
+//   reserved  = sum RESERVE  - sum RELEASE   earmarked against open offers
+//   available = physical - reserved          what you may still offer
+//
+// The four reasons, and the lifecycle they trace:
+//
+//   DELIVERY  gas arrives into storage
+//   RESERVE   an offer is submitted; the fuel it would burn is earmarked so
+//             the same MWh cannot be offered twice
+//   RELEASE   the offer did not clear, or was superseded; earmark returned
+//   BURN      the offer cleared and the unit ran; fuel physically consumed
+//
+// A cleared bid produces BOTH a RELEASE (the earmark ends) and a BURN (the
+// stock drops). Netting them into one row would leave `physical` unable to
+// distinguish fuel that was burnt from fuel that was never committed.
+//
+// MWh THERMAL throughout, matching gas.price (EUR/MWh thermal, LHV) — NOT MWh
+// electrical. .gaz.fuelburn does the efficiency conversion; see .gaz.units.
+
+fuelmove:([]
+  time    :`timestamp$();
+  plant   :`g#`symbol$();    // unit whose storage this moves
+  delivery:`timestamp$();    // period it relates to; 0Np for a physical delivery
+  mwh     :`float$();        // MWh THERMAL, always positive - see above
+  reason  :`symbol$();       // DELIVERY | RESERVE | RELEASE | BURN
+  ref     :`symbol$();       // submission id, ties a RESERVE to its RELEASE/BURN
+  src     :`symbol$() )
 

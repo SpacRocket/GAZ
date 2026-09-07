@@ -22,3 +22,14 @@ true,0,0,q,.gaz.dispatch[120f;30f;100f;0.2;0.5],1,,in the money when power excee
 true,0,0,q,not .gaz.dispatch[80f;30f;100f;0.2;0.5],1,,out of the money when it does not
 true,0,0,q,10b~.gaz.dispatch[120 80f;30f;100f;0.2;0.5],1,,dispatch vectorises over a delivery curve
 true,0,0,q,.t.eqf[.gaz.marginalcost[30 30f;100f;0.2;0.5];2#100f],1,,marginal cost vectorises over gas
+true,0,0,q,.t.eqf[.gaz.fuelburn[870f;0.25;0.58];375f],1,,870MW for a quarter hour at 58pc = 375 MWh thermal
+true,0,0,q,.t.eqf[.gaz.fuelburn[400f;1f;0.5];800f],1,,fuelburn is the inverse of efficiency
+true,0,0,q,.t.eqf[sum .gaz.fuelburn[96#870f;96#.gaz.periodhours;96#0.58];36000f],1,,a full day at full load
+true,0,0,q,.t.eqf[.gaz.periodhours;0.25],1,,delivery periods are quarter hours
+true,0,0,q,all .t.eqf'[.gaz.fuelburn[100 200f;0.25;0.5];50 100f],1,,fuelburn vectorises over mw
+true,0,0,q,`fuelmove in tables[],1,,fuelmove is in the tickerplant schema
+true,0,0,q,`ref in cols bid,1,,bid carries the submission ref
+true,0,0,q,98h=type fuelmove,1,,fuelmove is unkeyed as the STP requires
+true,0,0,q,`g~attr fuelmove`plant,1,,fuelmove plant carries the grouped attribute
+true,0,0,q,`fuelcap in cols .gaz.plants,1,,plants carry on-site storage capacity
+true,0,0,q,all 0<exec fuelcap from .gaz.plants,1,,every plant has a positive fuel capacity
