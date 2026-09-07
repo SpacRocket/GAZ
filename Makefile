@@ -12,7 +12,7 @@ TORQ_TEST = $$QCMD $$TORQHOME/torq.q -procfile $$TORQPROCESSES \
             -load $$GAZ_TESTS/helpers.q -noredirect
 
 .PHONY: help bootstrap start stop restart status tail test test-unit \
-        test-integration backfill repl clean clean-data
+        test-integration backfill backfill-marks backfill-all repl clean clean-data
 
 help: ## Show this help
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -73,6 +73,28 @@ backfill: ## Backfill ENTSO-E power history: make backfill FROM=2026-01-01 TO=20
 	@set -a && . ./env.sh && \
 	  docker compose -f docker/docker-compose.yml exec -T stp \
 	    python3 /app/code/tick/backfill_power.py $(FROM) $(TO) $(ARGS)
+
+# Runs in the SORT container, not the stp: this one writes partitions straight
+# into GAZ_HDB rather than publishing, and sort is the process the layout
+# already designates as the writer against that mount (infra/README.md rule 1).
+# Reload targets are hdb1/hdb2 at KDBBASEPORT+3/+4 per docker/process.csv —
+# rule 3, they hold mmaps and will not see new partitions otherwise.
+backfill-marks: ## Generate gas+carbon history into the HDB: make backfill-marks FROM=2026-08-07 TO=2026-09-05
+	@[ -n "$(FROM)" ] && [ -n "$(TO)" ] || { \
+	  echo "usage: make backfill-marks FROM=YYYY-MM-DD TO=YYYY-MM-DD [ARGS=--dry-run]" >&2; \
+	  exit 2; }
+	@set -a && . ./env.sh && \
+	  docker compose -f docker/docker-compose.yml exec -T \
+	    -e GAZ_RELOAD_TARGETS="hdb1:$$((KDBBASEPORT+3)),hdb2:$$((KDBBASEPORT+4))" \
+	    sort python3 /app/code/tick/backfill_marks.py $(FROM) $(TO) $(ARGS)
+
+# Both loaders over one range. They are not interchangeable — power goes through
+# the tickerplant because `delivery` survives the STP's own `time` stamp, gas
+# and carbon cannot because `time` is their only axis. See either script's
+# docstring. Power needs an EOD afterwards to reach disk; marks are already there.
+backfill-all: ## Power + marks over one range: make backfill-all FROM=2026-08-07 TO=2026-09-05
+	@$(MAKE) backfill FROM=$(FROM) TO=$(TO) ARGS="$(ARGS)"
+	@$(MAKE) backfill-marks FROM=$(FROM) TO=$(TO) ARGS="$(ARGS)"
 
 repl: ## Interactive q as a TorQ process, connected to the running stack
 	@$(E) bin/gaz repl itest1
