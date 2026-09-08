@@ -12,6 +12,10 @@ env.local.sh
 KUTR.csv
 tests/results/
 
+# Python bytecode from the tick handlers
+__pycache__/
+
 # q / editor
 *.log
 .DS_Store
+scratch**
