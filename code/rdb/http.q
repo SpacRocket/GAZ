@@ -99,6 +99,8 @@
 //   GET  /gaz/grid         96-period offer grid for ?plant=&date=
 //   GET  /gaz/bids         offers submitted, most recent first
 //   POST /gaz/submit       submit an offer curve
+//   POST /gaz/refuel       book a gas delivery, or fill to fuelcap
+//   POST /gaz/fillall      every plant to its fuelcap
 //
 // `/gaz/store`, NOT `/gaz/fuelstore`. The route chain above matches
 // `gaz/fuel*` for the fuel LEG of marginal cost, and `like` would swallow
@@ -270,24 +272,89 @@
   if[0=count t; '"no periods to submit"];
   .bid.submit[pl; t`delivery; t`mw; t`price] };
 
-.gz.route2:{[p;body]
+// --- refuel --------------------------------------------------------------
+//
+// Gas has to arrive before it can be offered: `physical` is
+// `sum DELIVERY - sum BURN`, and no feed publishes a DELIVERY row, so a fresh
+// stack shows every tank at zero and every offer of size fails the
+// reservation check. This is the dashboard's way to book gas in.
+//
+// One endpoint, three ledger calls, chosen by the two select elements the
+// form posts rather than by three URLs. The panel can only POST to one URL,
+// and a hidden second panel per action is worse than a `mode` field:
+//
+//   {"plant":"Sloe","mode":"deliver","mwh":12000}   .bid.refuel
+//   {"plant":"Sloe","mode":"fill"}                  .bid.fill
+//   {"plant":"ALL","mode":"fill"}                   .bid.fillall
+//
+// `mwh` is IGNORED in fill mode rather than rejected as extra: Business Forms
+// posts every element whatever the mode, so a quantity always arrives. The
+// alternative is a showIf hiding the field, which is browser-side JavaScript —
+// untestable from here, and silently wrong when it breaks. Same reasoning as
+// the flat-body shape .gz.submit accepts.
+//
+// ALL is spelled as a plant value because the form's plant list is where a
+// person looks for "everything", not in a separate checkbox they will miss.
+.gz.refuel:{[body]
+  r:@[.j.k; body; {'"body is not valid JSON: ",x}];
+  if[not `plant in key r; '"need plant"];
+  raw:r`plant;
+  if[0=count raw; '"need plant"];
+
+  // Default to a plain delivery: a body without a mode is the curl shape
+  // {"plant":..,"mwh":..}, and guessing "fill" there would silently deliver a
+  // different quantity from the one asked for.
+  mode:lower $[`mode in key r; r`mode; "deliver"];
+  if[not mode in ("deliver";"fill"); '"mode must be deliver or fill"];
+
+  if[raw~"ALL";
+    if[not mode~"fill";
+      '"ALL only makes sense with mode=fill - a delivery goes to one plant"];
+    :.gz.fillbody[]];
+
+  pl:`$raw;
+  if[not pl in exec plant from .gaz.plants; '"unknown plant: ",raw];
+  if[mode~"fill"; :.bid.fill pl];
+
+  if[not `mwh in key r; '"need mwh"];
+  .bid.refuel[pl; "f"$r`mwh] };
+
+// Every tank to its ceiling. Reports what actually moved rather than echoing
+// the request: `state` before and after come from the same plants.csv order,
+// so the two are row-aligned and a plain vector difference is the delivery.
+.gz.fillbody:{
+  before:.bid.state[];
+  after:.bid.fillall[];
+  d:after[`physical] - before[`physical];
+  `action`plants`delivered`physical!
+    (`fillall; count where d>1e-9; sum d; sum after`physical) };
+
+.gz.route2:{[m;p;body]
   p:$["/"~first p; 1_p; p];
   a:.gz.args p;
   base:(p?"?")#p;
+  // Writes are POST-only. Matching on the path alone would let any GET — a
+  // browser prefetch, an uptime probe, the URL pasted out of these comments —
+  // deliver fuel or fill every tank on the desk's behalf. /gaz/submit was safe
+  // only by accident: a GET carries no body, so the JSON parse failed first.
+  // /gaz/fillall needs no body at all, so accident is no longer enough.
+  w:`POST~m;
   // Handlers return a JSON BODY, or signal. Wrapping happens here and only
   // here — an earlier version had .gz.grid return a full response which this
   // then wrapped a second time, putting the status line and headers inside the
   // body. One place decides what an HTTP response looks like.
-  $[base like "gaz/store*";  @[{.gz.ok .gz.store[]};   ::;   {.gz.bad x}];
-    base like "gaz/grid*";   @[{.gz.ok .gz.grid x};    a;    {.gz.bad x}];
-    base like "gaz/bids*";   @[{.gz.ok .gz.bids[]};    ::;   {.gz.bad x}];
-    base like "gaz/submit*"; @[{.gz.ok .j.j .gz.submit x}; body; {.gz.bad x}];
+  $[base like "gaz/store*";            @[{.gz.ok .gz.store[]};   ::;   {.gz.bad x}];
+    base like "gaz/grid*";             @[{.gz.ok .gz.grid x};    a;    {.gz.bad x}];
+    base like "gaz/bids*";             @[{.gz.ok .gz.bids[]};    ::;   {.gz.bad x}];
+    w and base like "gaz/submit*";     @[{.gz.ok .j.j .gz.submit x};  body; {.gz.bad x}];
+    w and base like "gaz/refuel*";     @[{.gz.ok .j.j .gz.refuel x};  body; {.gz.bad x}];
+    w and base like "gaz/fillall*";    @[{.gz.ok .j.j .gz.fillbody[]}; ::; {.gz.bad x}];
     ()] };
 
 // GET for the read endpoints, chained ahead of the existing .z.ph so the
 // original /gaz/* routes are untouched.
 .dotz.set[`.z.ph; {[f;x]
-  r:@[{.gz.route2[x;""]}; first x; {[e] ()}];
+  r:@[{.gz.route2[`GET;x;""]}; first x; {[e] ()}];
   $[count r; r; f x]
  }[@[value; .dotz.getcommand[`.z.ph]; {{[x] x}}]]];
 
@@ -315,6 +382,6 @@
   // route2 receives the list as its path and never gets a body — the failure
   // surfaces as a bare 'type with no clue where it came from. The same trap
   // CLAUDE.md records against .servers.gethandlebytype.
-  r:.[.gz.route2; (p;b); {[e] .gz.bad "unhandled: ",e}];
+  r:.[.gz.route2; (`POST;p;b); {[e] .gz.bad "unhandled: ",e}];
   $[count r; r; f x]
  }[@[value; .dotz.getcommand[`.z.pp]; {{[x] .gz.bad "no route"}}]]];

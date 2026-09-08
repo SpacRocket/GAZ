@@ -98,6 +98,12 @@ rediscovered.
 - **The image copies `/app` at build time**, so a new or edited Python handler
   is not in a running container. `make backfill` against a stale image silently
   runs the old code — rebuild, or `docker cp` while iterating.
+- **A fresh stack has every plant at zero fuel, and that is correct.**
+  `physical` is `sum DELIVERY - sum BURN` over the `fuelmove` ledger, and no
+  feed ever publishes a DELIVERY row — `.bid.submit` only writes RESERVE and
+  RELEASE. Gas has to be booked in with `.bid.refuel[plant;mwh]` (or
+  `.bid.fill`/`.bid.fillall`) before an offer of any size clears the
+  reservation check. `fuelcap` in `plants.csv` is the ceiling, not the level.
 - TorQ processes redirect stdout/stderr to timestamped files in `$KDBLOG`; the
   un-suffixed `out_<proc>.log` is a symlink that can point at a stale run.
   `ls -t data/logs/out_<proc>_*.log | head -1` when a log looks empty.

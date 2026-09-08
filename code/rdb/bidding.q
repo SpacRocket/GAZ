@@ -118,9 +118,11 @@ tp:{
   if[null h; '"no tickerplant reachable - cannot submit"];
   h }
 
-// A submission id, unique per call and readable in a log line. Digits only:
+// A ledger id, unique per call and readable in a log line. Digits only:
 // a timestamp string carries dots and a D that would need quoting as a symbol.
-newref:{`$"B",(string[.z.p] where string[.z.p] in .Q.n)}
+// The prefix says what kind of event it was — B for a bid, D for a delivery —
+// so a ref found in the fuelmove table is traceable without a join.
+newref:{[pfx] `$pfx,(string[.z.p] where string[.z.p] in .Q.n)}
 
 // Submit an offer curve for one plant.
 //
@@ -172,7 +174,7 @@ submit:{[pl;deliveries;mws;prices]
     '"insufficient fuel for ",string[pl],": need ",string[.gaz.rnd[1;sum need]],
       " MWh thermal, ",string[.gaz.rnd[1;avail + sum relq]]," available"];
 
-  ref:.bid.newref[];
+  ref:.bid.newref"B";
   h:.bid.tp[];
 
   // Order matters. RELEASE before RESERVE so the ledger never shows the same
@@ -198,5 +200,81 @@ submit:{[pl;deliveries;mws;prices]
         " ref ",string[ref],", reserved ",string[.gaz.rnd[1;sum need]]," MWh th"];
   `ref`plant`zone`periods`mw`fuelreserved`fuelreleased!
     (ref; pl; rec`zone; n; sum mw*.gaz.periodhours; sum need; sum relq) }
+
+// --- deliveries ----------------------------------------------------------
+//
+// WHY EVERY PLANT READS ZERO ON A FRESH STACK. `physical` is
+// `sum DELIVERY - sum BURN`, and until this function existed nothing in the
+// repo ever published a DELIVERY row — submit only writes RESERVE and
+// RELEASE. So the tanks started empty and stayed empty, and the first offer
+// of any size failed the "insufficient fuel" check. Gas has to arrive before
+// it can be burnt; this is how it arrives.
+//
+// A delivery is not a feed either — someone nominated it — so it takes the
+// same logged, append-only path as a bid, with src=MANUAL.
+
+// Book `mwh` MWh THERMAL of gas into a plant's storage.
+//
+// `fuelcap` is a physical ceiling, so an overfill is rejected rather than
+// clipped: silently accepting less than was nominated would leave the ledger
+// disagreeing with the delivery note, which is exactly the state the ledger
+// exists to prevent. The error says how much room there is.
+refuel:{[pl;mwh]
+  if[not pl in exec plant from .gaz.plants; '"unknown plant: ",string pl];
+  rec:.gaz.plants pl;
+
+  q:"f"$mwh;
+  if[not 1=count q,(); '"one plant, one quantity - refuel does not vectorise"];
+  q:first q,();
+  if[null q;     '"null mwh"];
+  if[q<=1e-9;    '"delivery must be positive - mwh is a magnitude, not a signed delta (see database.q)"];
+
+  // Read the level back off the ledger rather than trusting a caller's idea
+  // of it: state[] is the only definition of "physical" that the rest of the
+  // system agrees with.
+  st:.bid.state[];
+  m:st[`plant]=pl;
+  phys:first st[`physical] where m;
+  resv:first st[`reserved] where m;
+  room:rec[`fuelcap] - phys;
+  if[q > room + 1e-9;
+    '"delivery overfills ",string[pl],": ",string[.gaz.rnd[1;q]],
+      " MWh thermal offered, ",string[.gaz.rnd[1;room]]," MWh of headroom"];
+
+  ref:.bid.newref"D";
+  h:.bid.tp[];
+
+  // delivery is 0Np: gas arriving into the tank relates to no offer period.
+  // The STP prepends `time`, so this publishes six columns, not seven.
+  neg[h](".u.upd";`fuelmove;
+    (enlist pl; enlist 0Np; enlist q; enlist `DELIVERY; enlist ref;
+     enlist .bid.src));
+  neg[h][];                              // flush, so the caller knows it landed
+
+  .lg.o[`bid;"delivered ",string[.gaz.rnd[1;q]]," MWh th to ",string[pl],
+        " ref ",string[ref],", physical now ",string[.gaz.rnd[1;phys+q]]];
+  `ref`plant`delivered`physical`reserved`available!
+    (ref; pl; q; phys+q; resv; phys+q-resv) }
+
+// Top a plant up to its `fuelcap`. The normal way to start a demo stack, and
+// the reason refuel takes a quantity rather than a target: the ledger records
+// what arrived, so "fill it" has to be turned into a number by someone.
+// A tank already full is a no-op, not an error — filling twice is a
+// reasonable thing to ask for and must not publish a zero row.
+fill:{[pl]
+  if[not pl in exec plant from .gaz.plants; '"unknown plant: ",string pl];
+  st:.bid.state[];
+  m:st[`plant]=pl;
+  room:(first st[`fuelcap] where m) - first st[`physical] where m;
+  $[room>1e-9;
+    .bid.refuel[pl; room];
+    `ref`plant`delivered`physical`reserved`available!
+      (`; pl; 0f; first st[`physical] where m; first st[`reserved] where m;
+       first st[`available] where m)] }
+
+// Every plant to its ceiling, in one call. Returns the fuel position after.
+fillall:{
+  {[pl] .bid.fill pl} each exec plant from .gaz.plants;
+  .bid.state[] }
 
 \d .

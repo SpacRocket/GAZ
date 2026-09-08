@@ -16,6 +16,9 @@
 //   q).bid.submit[`Sloe;2026.09.08D06:00;400f;78.50]
 //   q).bid.curve[`Sloe;2026.09.08;400f;78.50]    / all 96 periods
 //   q).bid.fuel[]                                / fuel position per plant
+//   q).bid.refuel[`Sloe;12000f]                  / book a gas delivery, MWh th
+//   q).bid.fill[`Sloe]                           / top that plant to fuelcap
+//   q).bid.fillall[]                             / every tank to the top
 //   q).bid.effective[2026.09.07D10:00]           / what stands at the gate
 //
 // Deliberately NOT in code/common/gaz.q: that file is loaded into every
@@ -75,6 +78,20 @@ curve:{[plant;date;mw;price]
 // Fuel position per plant: physical stock, what is earmarked, what is left to
 // offer. MWh THERMAL.
 fuel:{ rdb[](`.bid.state; ::) }
+
+// Book a gas delivery into a plant's storage, MWh THERMAL. Remote for the same
+// reason submit is: the ledger, the fuelcap check and the tickerplant publish
+// all live on the RDB, and a second copy here would drift from them.
+//
+// A fresh stack has empty tanks — nothing publishes a DELIVERY row on its own
+// — so this is what has to happen before any offer of size will clear the
+// reservation check.
+refuel:{[plant;mwh] rdb[](`.bid.refuel; plant; "f"$mwh) }
+
+// Top one plant, or every plant, up to fuelcap. `fillall` returns the position
+// afterwards, so it doubles as the sanity check that the deliveries landed.
+fill:{[plant] rdb[](`.bid.fill; plant) }
+fillall:{ rdb[](`.bid.fillall; ::) }
 
 // What actually stands at gate closure. Offers are append-only, so the
 // effective one is the LAST row before the gate, not simply the last row —

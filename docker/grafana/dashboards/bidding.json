@@ -6,7 +6,7 @@
   ],
   "timezone": "utc",
   "schemaVersion": 39,
-  "version": 3,
+  "version": 4,
   "refresh": "30s",
   "time": {
     "from": "now-6h",
@@ -51,7 +51,7 @@
       },
       "gridPos": {
         "h": 9,
-        "w": 12,
+        "w": 9,
         "x": 0,
         "y": 0
       },
@@ -136,8 +136,8 @@
       },
       "gridPos": {
         "h": 9,
-        "w": 12,
-        "x": 12,
+        "w": 9,
+        "x": 9,
         "y": 0
       },
       "targets": [
@@ -234,6 +234,211 @@
       },
       "options": {
         "showHeader": true
+      }
+    },
+    {
+      "type": "volkovlabs-form-panel",
+      "title": "Refuel storage",
+      "description": "Books gas INTO a tank as a DELIVERY row on the fuel ledger, through the tickerplant like any other tick. A fresh stack shows every plant at zero because nothing publishes a DELIVERY on its own - physical is sum DELIVERY - sum BURN - so nothing can be offered until gas is booked in here. Deliver adds the quantity; Fill to capacity tops the tank up to its fuelcap and ignores the quantity. Plant = ALL fills every tank, and only works with Fill. Rejected if the delivery would overfill; the panels refresh on the dashboard's 30s interval.",
+      "datasource": {
+        "type": "datasource",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "datasource",
+            "uid": "grafana"
+          },
+          "queryType": "list",
+          "path": ""
+        }
+      ],
+      "options": {
+        "sync": false,
+        "layout": {
+          "variant": "single",
+          "padding": 10,
+          "sectionVariant": "default"
+        },
+        "initial": {
+          "method": "-",
+          "contentType": "application/json",
+          "code": "",
+          "highlight": false,
+          "highlightColor": "red",
+          "payloadMode": "all"
+        },
+        "update": {
+          "method": "POST",
+          "url": "http://localhost:6002/gaz/refuel",
+          "contentType": "text/plain",
+          "payloadMode": "all",
+          "getPayload": "",
+          "code": ""
+        },
+        "reset": {
+          "variant": "hidden",
+          "icon": "process",
+          "text": "Reset",
+          "backgroundColor": "purple",
+          "foregroundColor": "yellow"
+        },
+        "submit": {
+          "variant": "primary",
+          "icon": "plus-circle",
+          "text": "Book delivery",
+          "backgroundColor": "purple",
+          "foregroundColor": "yellow"
+        },
+        "saveDefault": {
+          "variant": "hidden",
+          "icon": "save",
+          "text": "Save default"
+        },
+        "buttonGroup": {
+          "orientation": "center",
+          "size": "md"
+        },
+        "confirmModal": {
+          "enabled": true,
+          "title": "Confirm delivery",
+          "body": "This writes a DELIVERY row to the fuel ledger and raises physical stock.",
+          "columns": {
+            "include": [
+              "name",
+              "newValue"
+            ],
+            "name": "Field",
+            "newValue": "Value"
+          },
+          "confirm": "Book",
+          "cancel": "Cancel",
+          "elementDisplayMode": "modified"
+        },
+        "elementValueChanged": "",
+        "resetAction": {
+          "mode": "initial",
+          "code": "",
+          "confirm": false
+        },
+        "elements": [
+          {
+            "id": "plant",
+            "title": "Plant",
+            "type": "select",
+            "section": "",
+            "uid": "refuelplant",
+            "value": "Sloe",
+            "showIf": "",
+            "disableIf": "",
+            "optionsSource": "Custom",
+            "options": [
+              {
+                "label": "ALL (every plant)",
+                "value": "ALL",
+                "id": "ALL"
+              },
+              {
+                "label": "Landivisiau",
+                "value": "Landivisiau",
+                "id": "Landivisiau"
+              },
+              {
+                "label": "Saint_Avold",
+                "value": "Saint_Avold",
+                "id": "Saint_Avold"
+              },
+              {
+                "label": "Toul",
+                "value": "Toul",
+                "id": "Toul"
+              },
+              {
+                "label": "Bayet",
+                "value": "Bayet",
+                "id": "Bayet"
+              },
+              {
+                "label": "Pont_sur_Sambre",
+                "value": "Pont_sur_Sambre",
+                "id": "Pont_sur_Sambre"
+              },
+              {
+                "label": "Marcinelle",
+                "value": "Marcinelle",
+                "id": "Marcinelle"
+              },
+              {
+                "label": "Castejon_1_3",
+                "value": "Castejon_1_3",
+                "id": "Castejon_1_3"
+              },
+              {
+                "label": "Sloe",
+                "value": "Sloe",
+                "id": "Sloe"
+              },
+              {
+                "label": "Rijnmond",
+                "value": "Rijnmond",
+                "id": "Rijnmond"
+              },
+              {
+                "label": "MaasStroom",
+                "value": "MaasStroom",
+                "id": "MaasStroom"
+              },
+              {
+                "label": "Enecogen",
+                "value": "Enecogen",
+                "id": "Enecogen"
+              }
+            ]
+          },
+          {
+            "id": "mode",
+            "title": "Action",
+            "type": "select",
+            "section": "",
+            "uid": "refuelmode",
+            "value": "deliver",
+            "showIf": "",
+            "disableIf": "",
+            "optionsSource": "Custom",
+            "options": [
+              {
+                "label": "Deliver the quantity below",
+                "value": "deliver",
+                "id": "deliver"
+              },
+              {
+                "label": "Fill to capacity (ignores quantity)",
+                "value": "fill",
+                "id": "fill"
+              }
+            ]
+          },
+          {
+            "id": "mwh",
+            "title": "MWh thermal to deliver",
+            "type": "number",
+            "section": "",
+            "uid": "refuelmwh",
+            "value": 12000,
+            "min": 0,
+            "max": 60000,
+            "showIf": "",
+            "disableIf": ""
+          }
+        ]
       }
     },
     {
