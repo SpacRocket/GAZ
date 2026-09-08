@@ -102,8 +102,23 @@ rediscovered.
   `physical` is `sum DELIVERY - sum BURN` over the `fuelmove` ledger, and no
   feed ever publishes a DELIVERY row — `.bid.submit` only writes RESERVE and
   RELEASE. Gas has to be booked in with `.bid.refuel[plant;mwh]` (or
-  `.bid.fill`/`.bid.fillall`) before an offer of any size clears the
-  reservation check. `fuelcap` in `plants.csv` is the ceiling, not the level.
+  `.bid.fill`/`.bid.fillall`), the `POST /gaz/refuel` and `POST /gaz/fillall`
+  endpoints, or the "Refuel storage" panel on the bidding dashboard, before an
+  offer of any size clears the reservation check. `fuelcap` in `plants.csv` is
+  the ceiling, not the level.
+- **A row you publish is not visible to you until the STP echoes it.** The
+  tickerplant batches, so `.bid.state` still reports the pre-publish level for
+  a beat afterwards — and two refuels of one plant inside that window both read
+  it, both pass the fuelcap check and both land. Five requests in 40ms put the
+  live stack at 575001 MWh against a 267000 ceiling. `.bid.pending` holds a
+  delivery from publish until it is seen coming back (or a 30s TTL expires,
+  because EOD clears `fuelmove` and the echo may never arrive) and `state`
+  counts it as already in the tank. Anything else that publishes then re-reads
+  has the same exposure.
+- **HTTP writes are POST-only** (`w:\`POST~m` in `.gz.route2`). Matching on the
+  path alone let a GET — a browser prefetch, an uptime probe, the URL pasted
+  out of a comment — fill every tank. `/gaz/submit` was safe only by accident:
+  a GET carries no body, so its JSON parse failed first.
 - TorQ processes redirect stdout/stderr to timestamped files in `$KDBLOG`; the
   un-suffixed `out_<proc>.log` is a symlink that can point at a stale run.
   `ls -t data/logs/out_<proc>_*.log | head -1` when a log looks empty.
