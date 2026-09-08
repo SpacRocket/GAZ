@@ -66,6 +66,54 @@ totals:{
   if[0=count t; :([] plant:`symbol$(); reason:`symbol$(); mwh:`float$())];
   0!select mwh:sum mwh by plant,reason from t }
 
+// --- deliveries in flight -------------------------------------------------
+//
+// A row published to the tickerplant is NOT immediately visible here: the STP
+// batches, so it comes back on its next publish. Between the two, `totals`
+// still reports the old level — and two refuels of the same plant inside that
+// window both read it, both pass the fuelcap check and both land. Found by
+// firing five requests at the live stack in 40ms: total physical came back at
+// 575001 MWh against a ceiling of 267000.
+//
+// So a delivery is held here from the moment it is published until it is seen
+// coming back, and `state` counts it as already in the tank. That is the
+// honest reading — the gas is committed, the ledger just has not echoed yet.
+//
+// TTL, because "seen coming back" can never happen: EOD clears `fuelmove` out
+// of the RDB, and a row published just before the roll would leave an entry
+// here inflating `physical` for ever. Expiry makes the guard self-healing —
+// worst case it stops guarding after thirty seconds, which is still three
+// orders of magnitude longer than the window it exists to close.
+//
+// The same window applies to RESERVE from .bid.submit, which is left alone:
+// a re-bid releases its predecessor, so the failure there is a rejected offer
+// rather than a ledger that disagrees with the tank.
+pendingttl:0D00:00:30
+
+pending:([] time:`timestamp$(); ref:`symbol$(); plant:`symbol$(); mwh:`float$())
+
+// Drop what has landed or expired. Vector filtering, not a qsql where-clause:
+// inside a select, `seen` would resolve against the ROOT namespace rather than
+// this local and the filter would silently match nothing.
+reap:{
+  p:.bid.pending;
+  if[0=count p; :0];
+  fm:$[`fuelmove in tables[]; get `fuelmove; 0#p];
+  seen:$[count fm; distinct fm`ref; 0#`];
+  `.bid.pending set p where (not p[`ref] in seen) and p[`time] > .z.p - .bid.pendingttl;
+  count .bid.pending }
+
+// In-flight deliveries per plant, as a dictionary over EVERY plant, matching
+// the shape by_ returns so state can simply add the two.
+pendingby:{
+  .bid.reap[];
+  pl:exec plant from .gaz.plants;
+  base:pl!count[pl]#0f;
+  pd:.bid.pending;
+  if[0=count pd; :base];
+  s:0!select mwh:sum mwh by plant from pd;
+  base, (s`plant)!s`mwh }
+
 // Sum of one reason per plant, as a dictionary over EVERY plant. A plant with
 // no rows for a reason must read 0f rather than dropping out, because every
 // figure below is a difference of two of these.
@@ -80,7 +128,7 @@ by_:{[t;r]
 // Physical stock, earmarked, and what may still be offered. MWh THERMAL.
 state:{
   t:.bid.totals[];
-  phys:.bid.by_[t;`DELIVERY] - .bid.by_[t;`BURN];
+  phys:(.bid.by_[t;`DELIVERY] - .bid.by_[t;`BURN]) + .bid.pendingby[];
   resv:.bid.by_[t;`RESERVE]  - .bid.by_[t;`RELEASE];
   p:0!.gaz.plants;
   ([] plant:p`plant; zone:p`zone; capacity:p`capacity;
@@ -250,6 +298,11 @@ refuel:{[pl;mwh]
     (enlist pl; enlist 0Np; enlist q; enlist `DELIVERY; enlist ref;
      enlist .bid.src));
   neg[h][];                              // flush, so the caller knows it landed
+
+  // Committed, but not yet echoed by the tickerplant. Recorded BEFORE this
+  // returns so the next call — a double-clicked button is the realistic one —
+  // sees it and refuses to overfill.
+  `.bid.pending upsert (.z.p; ref; pl; q);
 
   .lg.o[`bid;"delivered ",string[.gaz.rnd[1;q]]," MWh th to ",string[pl],
         " ref ",string[ref],", physical now ",string[.gaz.rnd[1;phys+q]]];
