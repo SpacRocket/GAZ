@@ -95,12 +95,13 @@
 // =========================================================================
 // Bidding — read endpoints for context, and a POST to submit.
 //
-//   GET  /gaz/store        fuel inventory per plant (physical/reserved/available)
+//   GET  /gaz/store        the portfolio's gas position - ONE pool, whole fleet
+//   GET  /gaz/plants       what each unit has earmarked against that pool
+//   GET  /gaz/trades       the gas book, newest first, forwards included
 //   GET  /gaz/grid         96-period offer grid for ?plant=&date=
 //   GET  /gaz/bids         offers submitted, most recent first
 //   POST /gaz/submit       submit an offer curve
-//   POST /gaz/refuel       book a gas delivery, or fill to fuelcap
-//   POST /gaz/fillall      every plant to its fuelcap
+//   POST /gaz/buy          buy gas for a delivery window
 //
 // `/gaz/store`, NOT `/gaz/fuelstore`. The route chain above matches
 // `gaz/fuel*` for the fuel LEG of marginal cost, and `like` would swallow
@@ -131,12 +132,38 @@
 .gz.bad:{"HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\n",.gz.cors,"\r\n",
          .j.j enlist[`error]!enlist x};
 
-// Fuel inventory. `pct` saves every panel doing the division itself.
+// The portfolio's gas position. ONE object, not a row per plant — there is no
+// gas at a plant. See the fuel procurement note in database.q.
+//
+// No `pct` field any more: a percentage needs a ceiling, and the ceiling was
+// the tank. A pool has no capacity, only a level, so a bar chart of "how full"
+// no longer means anything. `forward` is the figure to watch instead — gas
+// bought whose delivery window has not started.
 .gz.store:{
-  t:.bid.state[];
-  .j.j update pct:100f*available%fuelcap from
-    select plant:string plant, zone:string zone, capacity, efficiency,
-           fuelcap, physical, reserved, available from t };
+  p:.fuel.position[];
+  .j.j `portfolio`hub`delivered`burnt`physical`reserved`available`wacog`forward!
+    (string p`portfolio; string p`hub;
+     .gaz.rnd[1;p`delivered]; .gaz.rnd[1;p`burnt]; .gaz.rnd[1;p`physical];
+     .gaz.rnd[1;p`reserved]; .gaz.rnd[1;p`available];
+     .gaz.rnd[3;p`wacog]; .gaz.rnd[1;p`forward]) };
+
+// What each unit has earmarked and burnt against the shared pool. Deliberately
+// carries no `available` column — that is a property of the pool, and dividing
+// it between units would need an allocation rule nobody has chosen.
+.gz.plants:{
+  t:.bid.byplant[];
+  .j.j select plant:string plant, zone:string zone, capacity, efficiency,
+              reserved, burnt from t };
+
+// The gas book. Forwards included and flagged, because a trade struck today
+// for November delivery is the whole reason this table exists separately from
+// the ledger.
+.gz.trades:{
+  t:.fuel.trades[];
+  if[0=count t; :"[]"];
+  .j.j flip `time`ref`mwh`price`cost`from`to`landed!(
+    .gz.ms t`time; string t`ref; .gaz.rnd[1;t`mwh]; .gaz.rnd[3;t`price];
+    .gaz.rnd[2;t`cost]; string t`dfrom; string t`dto; t`landed) };
 
 // --- query strings -------------------------------------------------------
 // "gaz/grid?plant=Sloe&date=2026-09-08" -> `plant`date!("Sloe";"2026-09-08")
@@ -272,62 +299,56 @@
   if[0=count t; '"no periods to submit"];
   .bid.submit[pl; t`delivery; t`mw; t`price] };
 
-// --- refuel --------------------------------------------------------------
+// --- buying gas ----------------------------------------------------------
 //
-// Gas has to arrive before it can be offered: `physical` is
-// `sum DELIVERY - sum BURN`, and no feed publishes a DELIVERY row, so a fresh
-// stack shows every tank at zero and every offer of size fails the
-// reservation check. This is the dashboard's way to book gas in.
+// Gas has to be bought before it can be offered: `available` is what the
+// portfolio holds less what is already earmarked, and nothing publishes a
+// trade on its own. A fresh stack shows an empty pool and every offer of size
+// fails the reservation check. This is the dashboard's way to buy.
 //
-// One endpoint, three ledger calls, chosen by the two select elements the
-// form posts rather than by three URLs. The panel can only POST to one URL,
-// and a hidden second panel per action is worse than a `mode` field:
+// One endpoint, two modes, chosen by a field rather than two URLs — the panel
+// can only POST to one:
 //
-//   {"plant":"Sloe","mode":"deliver","mwh":12000}   .bid.refuel
-//   {"plant":"Sloe","mode":"fill"}                  .bid.fill
-//   {"plant":"ALL","mode":"fill"}                   .bid.fillall
+//   {"mwh":50000,"price":34.2,"dfrom":"2026-10-01","dto":"2026-11-01"}
+//   {"mwh":50000,"mode":"spot"}     buy at the current TTF mark, landing now
 //
-// `mwh` is IGNORED in fill mode rather than rejected as extra: Business Forms
-// posts every element whatever the mode, so a quantity always arrives. The
-// alternative is a showIf hiding the field, which is browser-side JavaScript —
-// untestable from here, and silently wrong when it breaks. Same reasoning as
-// the flat-body shape .gz.submit accepts.
+// `price`, `dfrom` and `dto` are IGNORED in spot mode rather than rejected as
+// extra: Business Forms posts every element whatever the mode, so they always
+// arrive. The alternative is a showIf hiding them, which is browser-side
+// JavaScript — untestable from here, and silently wrong when it breaks. Same
+// reasoning as the flat-body shape .gz.submit accepts.
 //
-// ALL is spelled as a plant value because the form's plant list is where a
-// person looks for "everything", not in a separate checkbox they will miss.
-.gz.refuel:{[body]
+// Dates accept YYYY-MM-DD or a full timestamp. A bare date means midnight,
+// which is the sane reading of "October delivery" — and NOT the gas day, which
+// actually runs 06:00-06:00 CET. That simplification is fine while everything
+// here is UTC-naive; it stops being fine the moment a real gas contract is
+// priced against it.
+.gz.ts:{[x]
+  if[0=count x; :0Np];
+  // "D"$ first: a bare YYYY-MM-DD parses as a date and casts up to midnight.
+  // "P"$ on a bare date yields a null, so trying the timestamp parse first
+  // would silently reject every date-only value the form sends.
+  d:"D"$x;
+  $[not null d; "p"$d; "P"$x] };
+
+.gz.buy:{[body]
   r:@[.j.k; body; {'"body is not valid JSON: ",x}];
-  if[not `plant in key r; '"need plant"];
-  raw:r`plant;
-  if[0=count raw; '"need plant"];
-
-  // Default to a plain delivery: a body without a mode is the curl shape
-  // {"plant":..,"mwh":..}, and guessing "fill" there would silently deliver a
-  // different quantity from the one asked for.
-  mode:lower $[`mode in key r; r`mode; "deliver"];
-  if[not mode in ("deliver";"fill"); '"mode must be deliver or fill"];
-
-  if[raw~"ALL";
-    if[not mode~"fill";
-      '"ALL only makes sense with mode=fill - a delivery goes to one plant"];
-    :.gz.fillbody[]];
-
-  pl:`$raw;
-  if[not pl in exec plant from .gaz.plants; '"unknown plant: ",raw];
-  if[mode~"fill"; :.bid.fill pl];
-
+  mode:lower $[`mode in key r; r`mode; "term"];
+  if[not mode in ("term";"spot"); '"mode must be term or spot"];
   if[not `mwh in key r; '"need mwh"];
-  .bid.refuel[pl; "f"$r`mwh] };
+  q:"f"$r`mwh;
+  if[null q; '"bad mwh"];
 
-// Every tank to its ceiling. Reports what actually moved rather than echoing
-// the request: `state` before and after come from the same plants.csv order,
-// so the two are row-aligned and a plain vector difference is the delivery.
-.gz.fillbody:{
-  before:.bid.state[];
-  after:.bid.fillall[];
-  d:after[`physical] - before[`physical];
-  `action`plants`delivered`physical!
-    (`fillall; count where d>1e-9; sum d; sum after`physical) };
+  if[mode~"spot"; :.fuel.buyspot q];
+
+  if[not `price in key r; '"need price (or mode=spot to buy at the mark)"];
+  px:"f"$r`price;
+  if[null px; '"bad price"];
+  f:.gz.ts $[`dfrom in key r; r`dfrom; ""];
+  t:.gz.ts $[`dto in key r; r`dto; ""];
+  if[null f; '"need dfrom - YYYY-MM-DD or a full timestamp"];
+  if[null t; '"need dto - YYYY-MM-DD or a full timestamp, EXCLUSIVE"];
+  .fuel.buy[q; px; f; t] };
 
 .gz.route2:{[m;p;body]
   p:$["/"~first p; 1_p; p];
@@ -335,9 +356,9 @@
   base:(p?"?")#p;
   // Writes are POST-only. Matching on the path alone would let any GET — a
   // browser prefetch, an uptime probe, the URL pasted out of these comments —
-  // deliver fuel or fill every tank on the desk's behalf. /gaz/submit was safe
-  // only by accident: a GET carries no body, so the JSON parse failed first.
-  // /gaz/fillall needs no body at all, so accident is no longer enough.
+  // buy gas on the desk's behalf. /gaz/submit was safe only by accident: a GET
+  // carries no body, so the JSON parse failed first. Accident is not a control:
+  // /gaz/buy in spot mode needs nothing but an mwh.
   w:`POST~m;
   // Handlers return a JSON BODY, or signal. Wrapping happens here and only
   // here — an earlier version had .gz.grid return a full response which this
@@ -347,8 +368,7 @@
     base like "gaz/grid*";             @[{.gz.ok .gz.grid x};    a;    {.gz.bad x}];
     base like "gaz/bids*";             @[{.gz.ok .gz.bids[]};    ::;   {.gz.bad x}];
     w and base like "gaz/submit*";     @[{.gz.ok .j.j .gz.submit x};  body; {.gz.bad x}];
-    w and base like "gaz/refuel*";     @[{.gz.ok .j.j .gz.refuel x};  body; {.gz.bad x}];
-    w and base like "gaz/fillall*";    @[{.gz.ok .j.j .gz.fillbody[]}; ::; {.gz.bad x}];
+    w and base like "gaz/buy*";        @[{.gz.ok .j.j .gz.buy x};     body; {.gz.bad x}];
     ()] };
 
 // GET for the read endpoints, chained ahead of the existing .z.ph so the

@@ -25,6 +25,23 @@
 //
 // Carbon is EUR per tonne CO2 (metric), never short tons.
 
+// --- the portfolio -------------------------------------------------------
+//
+// ONE gas pool, shared by every plant. A CCGT has no tank of its own: it nominates
+// against a shipper portfolio at a hub, and the fuel position is a property of
+// that portfolio, not of any unit. Every RESERVE, RELEASE and BURN in fuelmove
+// draws on this one pool regardless of which plant wrote the row.
+//
+// Named rather than written as a bare symbol wherever it is needed, because it
+// appears in the schema, the ledger writer, the HTTP layer and the tests, and a
+// typo in any one of them would silently open a SECOND pool that always reads
+// empty.
+portfolio:`TEST_UNIVERSAL_TTF;
+
+// The hub the portfolio buys at. Matches gas.hub, so the market mark and the
+// book price are directly comparable — that difference is the fuel P&L.
+hub:`TTF;
+
 units:2!flip `tab`col`unit`basis!flip (
   (`power ; `price      ; `$"EUR/MWh"      ; `electrical);
   (`gas   ; `price      ; `$"EUR/MWh"      ; `thermal_LHV);
@@ -35,8 +52,10 @@ units:2!flip `tab`col`unit`basis!flip (
   (`plants; `efficiency ; `ratio           ; `LHV);
   (`plants; `ef         ; `$"tCO2/MWh"     ; `thermal);
   (`plants; `startup    ; `EUR             ; `per_start);
-  (`plants; `fuelcap    ; `$"MWh"          ; `thermal_LHV);
-  (`fuelmove; `mwh      ; `$"MWh"          ; `thermal_LHV))
+  (`fueltrade; `mwh    ; `$"MWh"          ; `thermal_LHV);
+  (`fueltrade; `price  ; `$"EUR/MWh"      ; `thermal_LHV);
+  (`fuelmove; `mwh      ; `$"MWh"          ; `thermal_LHV);
+  (`fuelmove; `price    ; `$"EUR/MWh"      ; `thermal_LHV))
 
 // --- pricing -------------------------------------------------------------
 

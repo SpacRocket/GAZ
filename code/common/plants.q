@@ -30,12 +30,11 @@
 //                       and would flatter the plant straight into marginal cost.
 //   ef         float    tCO2 per MWh thermal burnt (natural gas ~0.202)
 //   startup    float    EUR per cold start
-//   fuel       symbol   gas today; here so the table can carry more later
-//   fuelcap    float    on-site storage, MWh THERMAL. Roughly a day of
-//                       full-load burn (capacity/efficiency*24). It is the
-//                       CEILING, not the level — the level is derived by
-//                       summing the fuelmove ledger, because a level is state
-//                       and this file is reference data.
-plants:1!("SSFFFFSF"; enlist ",") 0: hsym `$getenv `GAZ_PLANTS
+//
+// There is NO fuelcap column, and there should not be one. A CCGT has no
+// on-site gas storage — it takes gas off the grid against a shipper portfolio,
+// so the fuel position belongs to .gaz.portfolio and not to any single unit.
+// See the fuel procurement note in database.q.
+plants:1!("SSFFFF"; enlist ",") 0: hsym `$getenv `GAZ_PLANTS
 
 \d .

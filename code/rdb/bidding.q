@@ -6,6 +6,13 @@
 // code/tools/bid.q does by hand — a bid is a decision, so it travels the same
 // logged, append-only path as any other tick.
 //
+// THERE IS NO FUEL AT A PLANT. Every unit draws on ONE portfolio pool; the
+// position lives in code/rdb/fuel.q and the `plant` column on `fuelmove` says
+// which unit committed against the pool, not whose tank it came from. So the
+// reservation check here is FLEET-WIDE: two plants offering the same gas
+// compete for it, which is the honest reading and was not expressible at all
+// when each unit had a notional tank of its own.
+//
 // THE FUEL LIFECYCLE. Submitting an offer does not burn gas; it earmarks it.
 // The unit only burns if the auction clears in its favour, which is the day
 // after the offer. So:
@@ -14,13 +21,14 @@
 //   auction misses  RELEASE           available restored
 //   auction clears  RELEASE + BURN    on dispatch
 //
-// Deducting outright at submission would drain storage on offers that never
-// cleared and leave the ledger disagreeing with the tank. See database.q for
-// the sign convention: `mwh` is always positive, `reason` carries direction.
+// Deducting outright at submission would drain the pool on offers that never
+// cleared and leave the ledger disagreeing with the position. See database.q
+// for the sign convention: `mwh` is always positive, `reason` carries
+// direction.
 //
 // Re-bidding a period you already offered RELEASES the previous reservation
 // first. Without that the second offer earmarks fuel on top of the first and
-// the plant looks out of gas after a few revisions — bids are append-only, so
+// the pool looks empty after a few revisions — bids are append-only, so
 // revising one is normal, not exceptional.
 //
 // NAME RESOLUTION. Every function here pulls a root table into a local with
@@ -36,11 +44,16 @@
 // A person decides a bid, even when a web form carries it.
 src:`MANUAL
 
-// --- fuel ledger, RDB + HDB ----------------------------------------------
+// --- per-plant commitments, RDB + HDB ------------------------------------
 //
-// A fuel level is the sum of every move ever made, so it cannot be read off
-// the RDB alone — that holds only since the last EOD. The HDB half is cached
-// and refreshed on a slow timer, like .gv.hist, because it only changes at EOD.
+// The POOL position is .fuel.position[] — one set of scalars for the whole
+// fleet. What is still per-plant is which unit is holding what against it,
+// which is what a desk wants to see next to the offer grid.
+//
+// A plant's commitment is the sum of every move it ever made, so it cannot be
+// read off the RDB alone — that holds only since the last EOD. The HDB half is
+// cached and refreshed on a slow timer, like .fuel.hist and .gv.hist, because
+// it only changes at EOD.
 
 histperiod:0D00:05
 
@@ -66,54 +79,6 @@ totals:{
   if[0=count t; :([] plant:`symbol$(); reason:`symbol$(); mwh:`float$())];
   0!select mwh:sum mwh by plant,reason from t }
 
-// --- deliveries in flight -------------------------------------------------
-//
-// A row published to the tickerplant is NOT immediately visible here: the STP
-// batches, so it comes back on its next publish. Between the two, `totals`
-// still reports the old level — and two refuels of the same plant inside that
-// window both read it, both pass the fuelcap check and both land. Found by
-// firing five requests at the live stack in 40ms: total physical came back at
-// 575001 MWh against a ceiling of 267000.
-//
-// So a delivery is held here from the moment it is published until it is seen
-// coming back, and `state` counts it as already in the tank. That is the
-// honest reading — the gas is committed, the ledger just has not echoed yet.
-//
-// TTL, because "seen coming back" can never happen: EOD clears `fuelmove` out
-// of the RDB, and a row published just before the roll would leave an entry
-// here inflating `physical` for ever. Expiry makes the guard self-healing —
-// worst case it stops guarding after thirty seconds, which is still three
-// orders of magnitude longer than the window it exists to close.
-//
-// The same window applies to RESERVE from .bid.submit, which is left alone:
-// a re-bid releases its predecessor, so the failure there is a rejected offer
-// rather than a ledger that disagrees with the tank.
-pendingttl:0D00:00:30
-
-pending:([] time:`timestamp$(); ref:`symbol$(); plant:`symbol$(); mwh:`float$())
-
-// Drop what has landed or expired. Vector filtering, not a qsql where-clause:
-// inside a select, `seen` would resolve against the ROOT namespace rather than
-// this local and the filter would silently match nothing.
-reap:{
-  p:.bid.pending;
-  if[0=count p; :0];
-  fm:$[`fuelmove in tables[]; get `fuelmove; 0#p];
-  seen:$[count fm; distinct fm`ref; 0#`];
-  `.bid.pending set p where (not p[`ref] in seen) and p[`time] > .z.p - .bid.pendingttl;
-  count .bid.pending }
-
-// In-flight deliveries per plant, as a dictionary over EVERY plant, matching
-// the shape by_ returns so state can simply add the two.
-pendingby:{
-  .bid.reap[];
-  pl:exec plant from .gaz.plants;
-  base:pl!count[pl]#0f;
-  pd:.bid.pending;
-  if[0=count pd; :base];
-  s:0!select mwh:sum mwh by plant from pd;
-  base, (s`plant)!s`mwh }
-
 // Sum of one reason per plant, as a dictionary over EVERY plant. A plant with
 // no rows for a reason must read 0f rather than dropping out, because every
 // figure below is a difference of two of these.
@@ -125,16 +90,22 @@ by_:{[t;r]
   if[not any m; :base];
   base, (t[`plant] where m)!(t[`mwh] where m) }
 
-// Physical stock, earmarked, and what may still be offered. MWh THERMAL.
-state:{
+// What each unit is holding against the shared pool, and what it has burnt.
+// MWh THERMAL.
+//
+// There is no `physical` or `available` column here and there must not be:
+// those are properties of the POOL, not of a unit. A per-plant `available`
+// would have to divide the pool between units on some rule nobody has chosen,
+// and every such rule is wrong — the whole fleet competes for the same gas.
+// .fuel.position[] is the one place that answers "how much is left".
+byplant:{
   t:.bid.totals[];
-  phys:(.bid.by_[t;`DELIVERY] - .bid.by_[t;`BURN]) + .bid.pendingby[];
-  resv:.bid.by_[t;`RESERVE]  - .bid.by_[t;`RELEASE];
+  resv:.bid.by_[t;`RESERVE] - .bid.by_[t;`RELEASE];
+  burnt:.bid.by_[t;`BURN];
   p:0!.gaz.plants;
   ([] plant:p`plant; zone:p`zone; capacity:p`capacity;
-      efficiency:p`efficiency; fuelcap:p`fuelcap;
-      physical:phys p`plant; reserved:resv p`plant;
-      available:(phys-resv) p`plant) }
+      efficiency:p`efficiency;
+      reserved:resv p`plant; burnt:burnt p`plant) }
 
 // Open reservations per delivery period for one plant — RESERVE not yet given
 // back. This is what a re-bid has to release before earmarking again.
@@ -168,8 +139,8 @@ tp:{
 
 // A ledger id, unique per call and readable in a log line. Digits only:
 // a timestamp string carries dots and a D that would need quoting as a symbol.
-// The prefix says what kind of event it was — B for a bid, D for a delivery —
-// so a ref found in the fuelmove table is traceable without a join.
+// The prefix says what kind of event it was — B for a bid, G for a gas trade
+// (.fuel.newref) — so a ref is traceable to its table without a join.
 newref:{[pfx] `$pfx,(string[.z.p] where string[.z.p] in .Q.n)}
 
 // Submit an offer curve for one plant.
@@ -204,6 +175,12 @@ submit:{[pl;deliveries;mws;prices]
   if[n<>count distinct d; '"duplicate delivery periods in one submission"];
 
   // What this curve would burn, per period, MWh thermal.
+  //
+  // At the plant's FULL-LOAD efficiency, whatever the offered MW. A real CCGT
+  // burns proportionally more per MWh at part load — nearer 50% than 58% at
+  // minimum stable generation — so a part-load offer under-reserves here. The
+  // fix is a heat-rate curve in plants.csv; until then the reservation is a
+  // floor, not the true burn.
   need:.gaz.fuelburn[mw; .gaz.periodhours; rec`efficiency];
 
   // Releasing first is what makes a revision safe. Vector filtering, not
@@ -213,24 +190,32 @@ submit:{[pl;deliveries;mws;prices]
   reld:op[`delivery] where relm;
   relq:op[`mwh] where relm;
 
-  st:.bid.state[];
-  avail:first st[`available] where st[`plant]=pl;
+  // FLEET-WIDE. The pool is shared, so what constrains this offer is what the
+  // portfolio holds less what every OTHER plant has already earmarked — not
+  // anything belonging to this unit.
+  pos:.fuel.position[];
+  avail:pos`available;
   // The release is added back before the check: re-bidding the same periods
   // must not fail merely because the earlier version of the same offer is
   // still holding the fuel.
   if[(sum need) > avail + sum relq;
-    '"insufficient fuel for ",string[pl],": need ",string[.gaz.rnd[1;sum need]],
-      " MWh thermal, ",string[.gaz.rnd[1;avail + sum relq]]," available"];
+    '"insufficient fuel in ",string[.gaz.portfolio],": need ",
+      string[.gaz.rnd[1;sum need]]," MWh thermal, ",
+      string[.gaz.rnd[1;avail + sum relq]]," available (buy with .fuel.buy)"];
 
   ref:.bid.newref"B";
   h:.bid.tp[];
 
   // Order matters. RELEASE before RESERVE so the ledger never shows the same
   // fuel earmarked twice, even to a reader that lands mid-submission.
+  //
+  // `price` is NULL on both: neither moves gas, so neither has a cost. Only a
+  // BURN carries a price, and it carries the pool's WACOG at that instant —
+  // see the fuel commitment note in database.q.
   if[count reld;
     neg[h](".u.upd";`fuelmove;
-      (count[reld]#pl; reld; relq; count[reld]#`RELEASE; count[reld]#ref;
-       count[reld]#.bid.src))];
+      (count[reld]#pl; reld; relq; count[reld]#0nf; count[reld]#`RELEASE;
+       count[reld]#ref; count[reld]#.bid.src))];
 
   neg[h](".u.upd";`bid;
     (n#pl; n#rec`zone; d; mw; px; n#ref; n#.bid.src));
@@ -240,94 +225,13 @@ submit:{[pl;deliveries;mws;prices]
   k:where need>1e-9;
   if[count k;
     neg[h](".u.upd";`fuelmove;
-      (count[k]#pl; d k; need k; count[k]#`RESERVE; count[k]#ref;
-       count[k]#.bid.src))];
+      (count[k]#pl; d k; need k; count[k]#0nf; count[k]#`RESERVE;
+       count[k]#ref; count[k]#.bid.src))];
 
   neg[h][];                              // flush, so the caller knows it landed
   .lg.o[`bid;"submitted ",string[n]," period(s) for ",string[pl],
         " ref ",string[ref],", reserved ",string[.gaz.rnd[1;sum need]]," MWh th"];
   `ref`plant`zone`periods`mw`fuelreserved`fuelreleased!
     (ref; pl; rec`zone; n; sum mw*.gaz.periodhours; sum need; sum relq) }
-
-// --- deliveries ----------------------------------------------------------
-//
-// WHY EVERY PLANT READS ZERO ON A FRESH STACK. `physical` is
-// `sum DELIVERY - sum BURN`, and until this function existed nothing in the
-// repo ever published a DELIVERY row — submit only writes RESERVE and
-// RELEASE. So the tanks started empty and stayed empty, and the first offer
-// of any size failed the "insufficient fuel" check. Gas has to arrive before
-// it can be burnt; this is how it arrives.
-//
-// A delivery is not a feed either — someone nominated it — so it takes the
-// same logged, append-only path as a bid, with src=MANUAL.
-
-// Book `mwh` MWh THERMAL of gas into a plant's storage.
-//
-// `fuelcap` is a physical ceiling, so an overfill is rejected rather than
-// clipped: silently accepting less than was nominated would leave the ledger
-// disagreeing with the delivery note, which is exactly the state the ledger
-// exists to prevent. The error says how much room there is.
-refuel:{[pl;mwh]
-  if[not pl in exec plant from .gaz.plants; '"unknown plant: ",string pl];
-  rec:.gaz.plants pl;
-
-  q:"f"$mwh;
-  if[not 1=count q,(); '"one plant, one quantity - refuel does not vectorise"];
-  q:first q,();
-  if[null q;     '"null mwh"];
-  if[q<=1e-9;    '"delivery must be positive - mwh is a magnitude, not a signed delta (see database.q)"];
-
-  // Read the level back off the ledger rather than trusting a caller's idea
-  // of it: state[] is the only definition of "physical" that the rest of the
-  // system agrees with.
-  st:.bid.state[];
-  m:st[`plant]=pl;
-  phys:first st[`physical] where m;
-  resv:first st[`reserved] where m;
-  room:rec[`fuelcap] - phys;
-  if[q > room + 1e-9;
-    '"delivery overfills ",string[pl],": ",string[.gaz.rnd[1;q]],
-      " MWh thermal offered, ",string[.gaz.rnd[1;room]]," MWh of headroom"];
-
-  ref:.bid.newref"D";
-  h:.bid.tp[];
-
-  // delivery is 0Np: gas arriving into the tank relates to no offer period.
-  // The STP prepends `time`, so this publishes six columns, not seven.
-  neg[h](".u.upd";`fuelmove;
-    (enlist pl; enlist 0Np; enlist q; enlist `DELIVERY; enlist ref;
-     enlist .bid.src));
-  neg[h][];                              // flush, so the caller knows it landed
-
-  // Committed, but not yet echoed by the tickerplant. Recorded BEFORE this
-  // returns so the next call — a double-clicked button is the realistic one —
-  // sees it and refuses to overfill.
-  `.bid.pending upsert (.z.p; ref; pl; q);
-
-  .lg.o[`bid;"delivered ",string[.gaz.rnd[1;q]]," MWh th to ",string[pl],
-        " ref ",string[ref],", physical now ",string[.gaz.rnd[1;phys+q]]];
-  `ref`plant`delivered`physical`reserved`available!
-    (ref; pl; q; phys+q; resv; phys+q-resv) }
-
-// Top a plant up to its `fuelcap`. The normal way to start a demo stack, and
-// the reason refuel takes a quantity rather than a target: the ledger records
-// what arrived, so "fill it" has to be turned into a number by someone.
-// A tank already full is a no-op, not an error — filling twice is a
-// reasonable thing to ask for and must not publish a zero row.
-fill:{[pl]
-  if[not pl in exec plant from .gaz.plants; '"unknown plant: ",string pl];
-  st:.bid.state[];
-  m:st[`plant]=pl;
-  room:(first st[`fuelcap] where m) - first st[`physical] where m;
-  $[room>1e-9;
-    .bid.refuel[pl; room];
-    `ref`plant`delivered`physical`reserved`available!
-      (`; pl; 0f; first st[`physical] where m; first st[`reserved] where m;
-       first st[`available] where m)] }
-
-// Every plant to its ceiling, in one call. Returns the fuel position after.
-fillall:{
-  {[pl] .bid.fill pl} each exec plant from .gaz.plants;
-  .bid.state[] }
 
 \d .

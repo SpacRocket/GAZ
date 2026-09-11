@@ -15,10 +15,11 @@
 //   tq
 //   q).bid.submit[`Sloe;2026.09.08D06:00;400f;78.50]
 //   q).bid.curve[`Sloe;2026.09.08;400f;78.50]    / all 96 periods
-//   q).bid.fuel[]                                / fuel position per plant
-//   q).bid.refuel[`Sloe;12000f]                  / book a gas delivery, MWh th
-//   q).bid.fill[`Sloe]                           / top that plant to fuelcap
-//   q).bid.fillall[]                             / every tank to the top
+//   q).bid.fuel[]                                / the portfolio's gas position
+//   q).bid.byplant[]                             / what each unit has earmarked
+//   q).bid.buyspot[100000f]                      / buy at the mark, lands now
+//   q).bid.buy[50000f;34.2;2026.10.01;2026.11.01]/ a forward, MWh th @ EUR/MWh
+//   q).bid.trades[]                              / the gas book
 //   q).bid.effective[2026.09.07D10:00]           / what stands at the gate
 //
 // Deliberately NOT in code/common/gaz.q: that file is loaded into every
@@ -75,23 +76,33 @@ curve:{[plant;date;mw;price]
   d:("p"$date)+0D00:15*til 96;
   rdb[](`.bid.submit; plant; d; 96#"f"$mw; 96#"f"$price) }
 
-// Fuel position per plant: physical stock, what is earmarked, what is left to
-// offer. MWh THERMAL.
-fuel:{ rdb[](`.bid.state; ::) }
+// The PORTFOLIO's gas position — one pool, shared by every plant. MWh THERMAL,
+// plus the pool's weighted average cost. There is no per-plant equivalent and
+// there should not be: see .bid.byplant.
+fuel:{ rdb[](`.fuel.position; ::) }
 
-// Book a gas delivery into a plant's storage, MWh THERMAL. Remote for the same
-// reason submit is: the ledger, the fuelcap check and the tickerplant publish
-// all live on the RDB, and a second copy here would drift from them.
+// What each unit has earmarked and burnt against that pool. No `available`
+// column — that belongs to the pool, not to a unit.
+byplant:{ rdb[](`.bid.byplant; ::) }
+
+// Buy gas for a delivery window. MWh THERMAL at EUR/MWh thermal; `dto` is
+// EXCLUSIVE. Remote for the same reason submit is: the book, the position and
+// the tickerplant publish all live on the RDB, and a second copy here would
+// drift from them.
 //
-// A fresh stack has empty tanks — nothing publishes a DELIVERY row on its own
-// — so this is what has to happen before any offer of size will clear the
-// reservation check.
-refuel:{[plant;mwh] rdb[](`.bid.refuel; plant; "f"$mwh) }
+// A trade struck for a future window sits on the book immediately and lands in
+// the pool at `dfrom`, so this is also how you set something up now and find
+// out later whether it was a good trade.
+buy:{[mwh;price;dfrom;dto]
+  rdb[](`.fuel.buy; "f"$mwh; "f"$price; "p"$dfrom; "p"$dto) }
 
-// Top one plant, or every plant, up to fuelcap. `fillall` returns the position
-// afterwards, so it doubles as the sanity check that the deliveries landed.
-fill:{[plant] rdb[](`.bid.fill; plant) }
-fillall:{ rdb[](`.bid.fillall; ::) }
+// Buy at the current TTF mark, landing now. A fresh stack has an empty pool —
+// nothing buys gas on its own — so this is what has to happen before any offer
+// of size will clear the reservation check.
+buyspot:{[mwh] rdb[](`.fuel.buyspot; "f"$mwh) }
+
+// The gas book, newest first, forwards included and flagged.
+trades:{ rdb[](`.fuel.trades; ::) }
 
 // What actually stands at gate closure. Offers are append-only, so the
 // effective one is the LAST row before the gate, not simply the last row —
