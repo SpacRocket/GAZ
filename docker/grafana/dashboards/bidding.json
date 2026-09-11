@@ -237,13 +237,13 @@
               "type": "number"
             },
             {
-              "selector": "from",
-              "text": "from",
+              "selector": "delivstart",
+              "text": "delivstart",
               "type": "string"
             },
             {
-              "selector": "to",
-              "text": "to",
+              "selector": "delivend",
+              "text": "delivend",
               "type": "string"
             },
             {
@@ -321,7 +321,7 @@
     {
       "type": "volkovlabs-form-panel",
       "title": "Buy gas",
-      "description": "Buys gas for the portfolio as a row on the gas book, through the tickerplant like any other tick. A fresh stack has an EMPTY POOL because nothing buys gas on its own, so nothing can be offered until gas is bought here. Term: give a price and a delivery window; the volume lands in the pool at the window start, so a future window shows as `forward` until then. Spot: buys at the current TTF mark, landing now, and ignores price/from/to. `to` is EXCLUSIVE. There is no ceiling to overfill \u2014 that was the tank, and a CCGT does not have one.",
+      "description": "Buys gas for the portfolio TEST_UNIVERSAL_TTF as a row on the gas book, through the tickerplant like any other tick. A fresh stack has an EMPTY POOL because nothing buys gas on its own, so nothing can be offered until gas is bought here.\n\nTerm buys at the price you type. Spot buys at the current TTF mark and ignores the price and the window \u2014 the panels refresh on the dashboard's 30s interval.\n\nLeave the window blank for a day starting now. Give a future start and the volume shows as `forward` until then: on the book, not yet in the pool. That is how you buy something now and find out later whether it was a good trade. `Delivery to` is EXCLUSIVE.\n\nThere is no ceiling to overfill \u2014 that was the tank, and a CCGT does not have one.",
       "datasource": {
         "type": "datasource",
         "uid": "grafana"
@@ -414,8 +414,8 @@
         "elements": [
           {
             "id": "mode",
-            "title": "Mode",
-            "type": "radio",
+            "title": "How to price it",
+            "type": "select",
             "section": "",
             "uid": "buymode",
             "value": "term",
@@ -424,12 +424,12 @@
             "optionsSource": "Custom",
             "options": [
               {
-                "label": "Term (price + window)",
+                "label": "Term \u2014 at the price below",
                 "value": "term",
                 "id": "term"
               },
               {
-                "label": "Spot (at the mark, now)",
+                "label": "Spot \u2014 at the current TTF mark",
                 "value": "spot",
                 "id": "spot"
               }
@@ -442,37 +442,39 @@
             "section": "",
             "uid": "buymwh",
             "value": 50000,
-            "min": 1,
+            "min": 0,
+            "max": 2000000,
             "showIf": "",
             "disableIf": ""
           },
           {
             "id": "price",
-            "title": "Price (EUR/MWh thermal)",
+            "title": "Price (EUR/MWh thermal) \u2014 term only",
             "type": "number",
             "section": "",
             "uid": "buyprice",
             "value": 34,
             "min": 0,
+            "max": 500,
             "showIf": "",
             "disableIf": ""
           },
           {
-            "id": "dfrom",
-            "title": "Delivery from (YYYY-MM-DD)",
+            "id": "delivstart",
+            "title": "Delivery from (YYYY-MM-DD, blank = now)",
             "type": "string",
             "section": "",
-            "uid": "buydfrom",
+            "uid": "buydelivstart",
             "value": "",
             "showIf": "",
             "disableIf": ""
           },
           {
-            "id": "dto",
-            "title": "Delivery to, EXCLUSIVE (YYYY-MM-DD)",
+            "id": "delivend",
+            "title": "Delivery to (YYYY-MM-DD, exclusive, blank = +1 day)",
             "type": "string",
             "section": "",
-            "uid": "buydto",
+            "uid": "buydelivend",
             "value": "",
             "showIf": "",
             "disableIf": ""

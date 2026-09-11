@@ -161,7 +161,7 @@
 .gz.trades:{
   t:.fuel.trades[];
   if[0=count t; :"[]"];
-  .j.j flip `time`ref`mwh`price`cost`from`to`landed!(
+  .j.j flip `time`ref`mwh`price`cost`delivstart`delivend`landed!(
     .gz.ms t`time; string t`ref; .gaz.rnd[1;t`mwh]; .gaz.rnd[3;t`price];
     .gaz.rnd[2;t`cost]; string t`delivstart; string t`delivend; t`landed) };
 
