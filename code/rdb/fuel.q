@@ -10,7 +10,7 @@
 // and `fuelmove` rows are already here, and this is the process serving HTTP.
 //
 // WHAT A TRADE IS. A purchase with a delivery window. It sits on the book from
-// the moment it is struck and lands in the pool at `dfrom` — which is what
+// the moment it is struck and lands in the pool at `delivstart` — which is what
 // makes "buy something now, find out later whether it was a good trade" work:
 // the trade is recorded at today's mark, and the power prices that judge it
 // clear weeks later. A trade is NOT an inventory movement, which is why it is
@@ -62,7 +62,7 @@ refreshhist:{
   // bought for November is on the book but not in the tank, and counting it
   // as delivered would let it be offered months before it arrives.
   t:@[h; "select dmwh:sum mwh, dvalue:sum mwh*price from fueltrade ",
-         "where dfrom<=.z.p"; ()];
+         "where delivstart<=.z.p"; ()];
   m:@[h; "select mwh:sum mwh, value:sum mwh*price by reason from fuelmove"; ()];
   r:.fuel.zero;
   if[count t;
@@ -95,7 +95,10 @@ refreshhist:{
 // inflating the pool for ever. Expiry makes the guard self-healing.
 pendingttl:0D00:00:30
 
-pending:([] time:`timestamp$(); ref:`symbol$(); mwh:`float$(); value:`float$())
+// `cost`, NOT `value`. `value` is a q BUILT-IN, so a column of that name fails
+// to even parse inside a table literal with 'assign — the same trap as `gtime`
+// in grafanaviews.q and `from`/`to` in database.q.
+pending:([] time:`timestamp$(); ref:`symbol$(); mwh:`float$(); cost:`float$())
 
 // Drop what has landed or expired. Vector filtering, not a qsql where-clause:
 // inside a select, `seen` would resolve against the ROOT namespace rather than
@@ -117,7 +120,7 @@ today:{
     ft:get `fueltrade;
     if[count ft;
       // Landed only, same rule as the HDB half.
-      m:ft[`dfrom]<=.z.p;
+      m:ft[`delivstart]<=.z.p;
       if[any m;
         r[`dmwh]:sum ft[`mwh] where m;
         r[`dvalue]:sum (ft[`mwh]*ft[`price]) where m]]];
@@ -150,7 +153,7 @@ position:{
   h:.fuel.hist; t:.fuel.today[];
   pd:.fuel.pending;
   pm:$[count pd; sum pd`mwh; 0f];
-  pv:$[count pd; sum pd`value; 0f];
+  pv:$[count pd; sum pd`cost; 0f];
 
   dm:h[`dmwh]+t[`dmwh]+pm;  dv:h[`dvalue]+t[`dvalue]+pv;
   bm:h[`bmwh]+t[`bmwh];     bv:h[`bvalue]+t[`bvalue];
@@ -172,10 +175,10 @@ forward:{
   n:0f;
   if[`fueltrade in tables[];
     ft:get `fueltrade;
-    if[count ft; m:ft[`dfrom]>.z.p; if[any m; n:sum ft[`mwh] where m]]];
+    if[count ft; m:ft[`delivstart]>.z.p; if[any m; n:sum ft[`mwh] where m]]];
   h:.fuel.hdbhandle[];
   if[null h; :n];
-  r:@[h; "select mwh:sum mwh from fueltrade where dfrom>.z.p"; ()];
+  r:@[h; "select mwh:sum mwh from fueltrade where delivstart>.z.p"; ()];
   n + $[count r; first r`mwh; 0f] }
 
 // --- writing -------------------------------------------------------------
@@ -201,25 +204,25 @@ newref:{`$"G",(string[.z.p] where string[.z.p] in .Q.n)}
 //   .fuel.buy[50000f; 34.20; 2026.10.01D00:00; 2026.11.01D00:00]
 //
 // `mwh` is MWh THERMAL over the whole window, `price` EUR/MWh thermal paid.
-// `dto` is EXCLUSIVE, matching the offer blocks in .gz.parseblocks.
+// `delivend` is EXCLUSIVE, matching the offer blocks in .gz.parseblocks.
 //
 // There is no ceiling to check against — that was the tank, and it is gone. A
 // trade is rejected only for being malformed. What it CAN do is fail later, at
 // submit: gas bought for November does not make an October offer possible.
-buy:{[mwh;price;dfrom;dto]
+buy:{[mwh;price;delivstart;delivend]
   q:"f"$mwh; px:"f"$price;
   if[not 1=count q,();  '"one quantity per trade - buy does not vectorise"];
   if[not 1=count px,(); '"one price per trade - buy does not vectorise"];
   q:first q,(); px:first px,();
-  f:"p"$dfrom; t:"p"$dto;
+  f:"p"$delivstart; t:"p"$delivend;
   f:first f,(); t:first t,();
 
   if[null q;  '"null mwh"];
   if[null px; '"null price"];
-  if[any null (f;t); '"null delivery window - need dfrom and dto"];
+  if[any null (f;t); '"null delivery window - need delivstart and delivend"];
   if[q<=1e-9; '"trade must be positive - mwh is a magnitude, not a signed delta (see database.q)"];
   if[px<0f;  '"negative price - gas has traded below zero, but not here"];
-  if[t<=f;   '"dto must be after dfrom, and it is EXCLUSIVE"];
+  if[t<=f;   '"delivend must be after delivstart, and it is EXCLUSIVE"];
 
   ref:.fuel.newref[];
   h:.fuel.tp[];
@@ -236,7 +239,7 @@ buy:{[mwh;price;dfrom;dto]
 
   .lg.o[`fuel;"bought ",string[.gaz.rnd[1;q]]," MWh th at ",string[.gaz.rnd[2;px]],
         " EUR/MWh for ",string[f]," to ",string[t]," ref ",string ref];
-  `ref`portfolio`hub`mwh`price`cost`dfrom`dto!
+  `ref`portfolio`hub`mwh`price`cost`delivstart`delivend!
     (ref; .gaz.portfolio; .gaz.hub; q; px; q*px; f; t) }
 
 // Buy at the current market mark, delivering now. The normal way to start a
@@ -248,21 +251,28 @@ buy:{[mwh;price;dfrom;dto]
 // at, which is the number the fuel P&L is measured against.
 buyspot:{[mwh]
   if[not `gas in tables[]; '"no gas marks yet - the feed has not published"];
-  g:last exec price from gas where hub=.gaz.hub;
+  // `get` and vector filtering, NOT `exec price from gas where hub=...`. Under
+  // \d .fuel an undotted name inside a select binds to .fuel.gas, which does
+  // not exist, and the call dies with a bare 'gas. The rule is in this file's
+  // header; this is the function that proved it.
+  t:get `gas;
+  m:t[`hub]=.gaz.hub;
+  if[not any m; '"no ",string[.gaz.hub]," mark yet - nothing to price against"];
+  g:last t[`price] where m;
   if[null g; '"no ",string[.gaz.hub]," mark yet - nothing to price against"];
   // A day-long window starting now, so it lands immediately and `forward`
-  // stays zero. dto is exclusive.
+  // stays zero. delivend is exclusive.
   .fuel.buy[mwh; g; .z.p; .z.p+0D24:00] }
 
 // The book, newest first. Includes forwards, which is the point of keeping it.
 trades:{
   empty:([] time:`timestamp$(); ref:`symbol$(); mwh:`float$(); price:`float$();
-            dfrom:`timestamp$(); dto:`timestamp$(); landed:`boolean$());
+            delivstart:`timestamp$(); delivend:`timestamp$(); landed:`boolean$());
   if[not `fueltrade in tables[]; :empty];
   ft:get `fueltrade;
   if[0=count ft; :empty];
-  t:`time xdesc select time, ref, mwh, price, dfrom, dto from ft;
-  update landed:dfrom<=.z.p, cost:mwh*price from t }
+  t:`time xdesc select time, ref, mwh, price, delivstart, delivend from ft;
+  update landed:delivstart<=.z.p, cost:mwh*price from t }
 
 \d .
 

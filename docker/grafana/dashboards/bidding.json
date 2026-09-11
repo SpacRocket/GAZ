@@ -42,9 +42,9 @@
   },
   "panels": [
     {
-      "type": "bargauge",
-      "title": "Fuel in storage \u2014 available to offer",
-      "description": "MWh THERMAL. `available` is physical stock minus fuel already earmarked against open offers, so it is what you may still bid. Submitting reserves; only dispatch burns. Full bar = the plant's on-site capacity.",
+      "type": "stat",
+      "title": "Gas position \u2014 TEST_UNIVERSAL_TTF",
+      "description": "MWh THERMAL, one shared portfolio for the whole fleet. There is no gas at a power station \u2014 a CCGT takes gas off the grid against a shipper portfolio, so there is one position here and not one per plant. physical = delivered minus burnt. reserved = earmarked against open offers; submitting reserves, only dispatch burns. available = physical minus reserved, and is what may still be offered by ANY unit \u2014 they compete for the same gas. forward = bought but not yet delivered, on the book and not in the pool. wacog = weighted average cost of what remains, EUR/MWh thermal: book against it, but BID on the market mark, because gas already bought can be resold.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "gaz-rdb"
@@ -75,13 +75,28 @@
           "filters": [],
           "columns": [
             {
-              "selector": "plant",
-              "text": "plant",
-              "type": "string"
+              "selector": "physical",
+              "text": "physical",
+              "type": "number"
             },
             {
-              "selector": "pct",
-              "text": "pct",
+              "selector": "available",
+              "text": "available",
+              "type": "number"
+            },
+            {
+              "selector": "reserved",
+              "text": "reserved",
+              "type": "number"
+            },
+            {
+              "selector": "forward",
+              "text": "forward",
+              "type": "number"
+            },
+            {
+              "selector": "wacog",
+              "text": "wacog",
               "type": "number"
             }
           ]
@@ -89,47 +104,84 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percent",
-          "min": 0,
-          "max": 100,
+          "unit": "none",
           "decimals": 1,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
+                "color": "text",
                 "value": null
-              },
-              {
-                "color": "orange",
-                "value": 20
-              },
-              {
-                "color": "green",
-                "value": 50
               }
             ]
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "wacog"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyEUR"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "available"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1
+                    },
+                    {
+                      "color": "green",
+                      "value": 10000
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
-        "displayMode": "gradient",
-        "orientation": "horizontal",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "/^pct$/",
-          "values": true
+          "fields": "",
+          "values": false
         },
-        "showUnfilled": true
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
       }
     },
     {
       "type": "table",
-      "title": "Storage detail (MWh thermal)",
-      "description": "physical = delivered minus burnt. reserved = earmarked against open offers. available = physical - reserved.",
+      "title": "Gas book \u2014 what was bought, when, and at what price",
+      "description": "Every purchase against the portfolio, newest first. `landed` is false for a forward: a trade struck today for a future window sits on the book from the moment it is struck and only enters the pool at its window start. That is the point of keeping trades separate from the fuel ledger \u2014 and it is what lets you buy something now and find out later whether it was a good trade. price is EUR/MWh THERMAL paid, directly comparable with the TTF mark below; that difference is the fuel P&L.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "gaz-rdb"
@@ -151,7 +203,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://rdb:6002/gaz/store",
+          "url": "http://rdb:6002/gaz/trades",
           "url_options": {
             "method": "GET",
             "data": ""
@@ -160,86 +212,116 @@
           "filters": [],
           "columns": [
             {
-              "selector": "plant",
-              "text": "plant",
+              "selector": "time",
+              "text": "time",
+              "type": "timestamp_epoch"
+            },
+            {
+              "selector": "ref",
+              "text": "ref",
               "type": "string"
             },
             {
-              "selector": "zone",
-              "text": "zone",
+              "selector": "mwh",
+              "text": "mwh",
+              "type": "number"
+            },
+            {
+              "selector": "price",
+              "text": "price",
+              "type": "number"
+            },
+            {
+              "selector": "cost",
+              "text": "cost",
+              "type": "number"
+            },
+            {
+              "selector": "from",
+              "text": "from",
               "type": "string"
             },
             {
-              "selector": "capacity",
-              "text": "MW",
-              "type": "number"
+              "selector": "to",
+              "text": "to",
+              "type": "string"
             },
             {
-              "selector": "physical",
-              "text": "physical",
-              "type": "number"
-            },
-            {
-              "selector": "reserved",
-              "text": "reserved",
-              "type": "number"
-            },
-            {
-              "selector": "available",
-              "text": "available",
-              "type": "number"
+              "selector": "landed",
+              "text": "landed",
+              "type": "boolean"
             }
           ]
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "decimals": 0,
           "custom": {
-            "align": "auto"
+            "align": "auto",
+            "filterable": true
           }
         },
         "overrides": [
           {
             "matcher": {
               "id": "byName",
-              "options": "available"
+              "options": "price"
             },
             "properties": [
               {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-text"
-                }
+                "id": "unit",
+                "value": "currencyEUR"
               },
               {
-                "id": "thresholds",
-                "value": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "red",
-                      "value": null
-                    },
-                    {
-                      "color": "green",
-                      "value": 1
-                    }
-                  ]
-                }
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cost"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyEUR"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "mwh"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 1
               }
             ]
           }
         ]
       },
       "options": {
-        "showHeader": true
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "time",
+            "desc": true
+          }
+        ]
       }
     },
     {
       "type": "volkovlabs-form-panel",
-      "title": "Refuel storage",
-      "description": "Books gas INTO a tank as a DELIVERY row on the fuel ledger, through the tickerplant like any other tick. A fresh stack shows every plant at zero because nothing publishes a DELIVERY on its own - physical is sum DELIVERY - sum BURN - so nothing can be offered until gas is booked in here. Deliver adds the quantity; Fill to capacity tops the tank up to its fuelcap and ignores the quantity. Plant = ALL fills every tank, and only works with Fill. Rejected if the delivery would overfill; the panels refresh on the dashboard's 30s interval.",
+      "title": "Buy gas",
+      "description": "Buys gas for the portfolio as a row on the gas book, through the tickerplant like any other tick. A fresh stack has an EMPTY POOL because nothing buys gas on its own, so nothing can be offered until gas is bought here. Term: give a price and a delivery window; the volume lands in the pool at the window start, so a future window shows as `forward` until then. Spot: buys at the current TTF mark, landing now, and ignores price/from/to. `to` is EXCLUSIVE. There is no ceiling to overfill \u2014 that was the tank, and a CCGT does not have one.",
       "datasource": {
         "type": "datasource",
         "uid": "grafana"
@@ -278,7 +360,7 @@
         },
         "update": {
           "method": "POST",
-          "url": "http://localhost:6002/gaz/refuel",
+          "url": "http://localhost:6002/gaz/buy",
           "contentType": "text/plain",
           "payloadMode": "all",
           "getPayload": "",
@@ -294,7 +376,7 @@
         "submit": {
           "variant": "primary",
           "icon": "plus-circle",
-          "text": "Book delivery",
+          "text": "Buy gas",
           "backgroundColor": "purple",
           "foregroundColor": "yellow"
         },
@@ -309,8 +391,8 @@
         },
         "confirmModal": {
           "enabled": true,
-          "title": "Confirm delivery",
-          "body": "This writes a DELIVERY row to the fuel ledger and raises physical stock.",
+          "title": "Confirm gas purchase",
+          "body": "This writes a trade to the gas book and raises the portfolio's position.",
           "columns": {
             "include": [
               "name",
@@ -319,7 +401,7 @@
             "name": "Field",
             "newValue": "Value"
           },
-          "confirm": "Book",
+          "confirm": "Buy",
           "cancel": "Cancel",
           "elementDisplayMode": "modified"
         },
@@ -331,112 +413,168 @@
         },
         "elements": [
           {
-            "id": "plant",
-            "title": "Plant",
-            "type": "select",
-            "section": "",
-            "uid": "refuelplant",
-            "value": "Sloe",
-            "showIf": "",
-            "disableIf": "",
-            "optionsSource": "Custom",
-            "options": [
-              {
-                "label": "ALL (every plant)",
-                "value": "ALL",
-                "id": "ALL"
-              },
-              {
-                "label": "Landivisiau",
-                "value": "Landivisiau",
-                "id": "Landivisiau"
-              },
-              {
-                "label": "Saint_Avold",
-                "value": "Saint_Avold",
-                "id": "Saint_Avold"
-              },
-              {
-                "label": "Toul",
-                "value": "Toul",
-                "id": "Toul"
-              },
-              {
-                "label": "Bayet",
-                "value": "Bayet",
-                "id": "Bayet"
-              },
-              {
-                "label": "Pont_sur_Sambre",
-                "value": "Pont_sur_Sambre",
-                "id": "Pont_sur_Sambre"
-              },
-              {
-                "label": "Marcinelle",
-                "value": "Marcinelle",
-                "id": "Marcinelle"
-              },
-              {
-                "label": "Castejon_1_3",
-                "value": "Castejon_1_3",
-                "id": "Castejon_1_3"
-              },
-              {
-                "label": "Sloe",
-                "value": "Sloe",
-                "id": "Sloe"
-              },
-              {
-                "label": "Rijnmond",
-                "value": "Rijnmond",
-                "id": "Rijnmond"
-              },
-              {
-                "label": "MaasStroom",
-                "value": "MaasStroom",
-                "id": "MaasStroom"
-              },
-              {
-                "label": "Enecogen",
-                "value": "Enecogen",
-                "id": "Enecogen"
-              }
-            ]
-          },
-          {
             "id": "mode",
-            "title": "Action",
-            "type": "select",
+            "title": "Mode",
+            "type": "radio",
             "section": "",
-            "uid": "refuelmode",
-            "value": "deliver",
+            "uid": "buymode",
+            "value": "term",
             "showIf": "",
             "disableIf": "",
             "optionsSource": "Custom",
             "options": [
               {
-                "label": "Deliver the quantity below",
-                "value": "deliver",
-                "id": "deliver"
+                "label": "Term (price + window)",
+                "value": "term",
+                "id": "term"
               },
               {
-                "label": "Fill to capacity (ignores quantity)",
-                "value": "fill",
-                "id": "fill"
+                "label": "Spot (at the mark, now)",
+                "value": "spot",
+                "id": "spot"
               }
             ]
           },
           {
             "id": "mwh",
-            "title": "MWh thermal to deliver",
+            "title": "Volume (MWh thermal)",
             "type": "number",
             "section": "",
-            "uid": "refuelmwh",
-            "value": 12000,
-            "min": 0,
-            "max": 60000,
+            "uid": "buymwh",
+            "value": 50000,
+            "min": 1,
             "showIf": "",
             "disableIf": ""
+          },
+          {
+            "id": "price",
+            "title": "Price (EUR/MWh thermal)",
+            "type": "number",
+            "section": "",
+            "uid": "buyprice",
+            "value": 34,
+            "min": 0,
+            "showIf": "",
+            "disableIf": ""
+          },
+          {
+            "id": "dfrom",
+            "title": "Delivery from (YYYY-MM-DD)",
+            "type": "string",
+            "section": "",
+            "uid": "buydfrom",
+            "value": "",
+            "showIf": "",
+            "disableIf": ""
+          },
+          {
+            "id": "dto",
+            "title": "Delivery to, EXCLUSIVE (YYYY-MM-DD)",
+            "type": "string",
+            "section": "",
+            "uid": "buydto",
+            "value": "",
+            "showIf": "",
+            "disableIf": ""
+          }
+        ]
+      }
+    },
+    {
+      "type": "table",
+      "title": "Earmarked by unit",
+      "description": "What each unit is holding against the shared pool, MWh THERMAL. There is deliberately no `available` column: available belongs to the POOL, and splitting it between units would need an allocation rule nobody has chosen \u2014 the whole fleet competes for the same gas.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "gaz-rdb"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "gaz-rdb"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://rdb:6002/gaz/plants",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "filters": [],
+          "columns": [
+            {
+              "selector": "plant",
+              "text": "plant",
+              "type": "string"
+            },
+            {
+              "selector": "zone",
+              "text": "zone",
+              "type": "string"
+            },
+            {
+              "selector": "capacity",
+              "text": "capacity",
+              "type": "number"
+            },
+            {
+              "selector": "efficiency",
+              "text": "efficiency",
+              "type": "number"
+            },
+            {
+              "selector": "reserved",
+              "text": "reserved",
+              "type": "number"
+            },
+            {
+              "selector": "burnt",
+              "text": "burnt",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": true
+          },
+          "decimals": 1
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "efficiency"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "reserved",
+            "desc": true
           }
         ]
       }
@@ -453,7 +591,7 @@
         "h": 12,
         "w": 14,
         "x": 0,
-        "y": 9
+        "y": 18
       },
       "targets": [
         {
@@ -574,7 +712,7 @@
         "h": 12,
         "w": 10,
         "x": 14,
-        "y": 9
+        "y": 18
       },
       "targets": [
         {
@@ -793,7 +931,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 21
+        "y": 30
       },
       "targets": [
         {
@@ -903,7 +1041,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 21
+        "y": 30
       },
       "targets": [
         {

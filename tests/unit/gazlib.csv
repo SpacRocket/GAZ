@@ -31,5 +31,15 @@ true,0,0,q,`fuelmove in tables[],1,,fuelmove is in the tickerplant schema
 true,0,0,q,`ref in cols bid,1,,bid carries the submission ref
 true,0,0,q,98h=type fuelmove,1,,fuelmove is unkeyed as the STP requires
 true,0,0,q,`g~attr fuelmove`plant,1,,fuelmove plant carries the grouped attribute
-true,0,0,q,`fuelcap in cols .gaz.plants,1,,plants carry on-site storage capacity
-true,0,0,q,all 0<exec fuelcap from .gaz.plants,1,,every plant has a positive fuel capacity
+true,0,0,q,`fueltrade in tables[],1,,fueltrade is in the tickerplant schema
+true,0,0,q,98h=type fueltrade,1,,fueltrade is unkeyed as the STP requires
+true,0,0,q,not any `fuel`fuelcap in cols .gaz.plants,1,,plants carry no storage or fuel-type column - a CCGT has no tank
+true,0,0,q,`TEST_UNIVERSAL_TTF~.gaz.portfolio,1,,one shared gas portfolio for the whole fleet
+true,0,0,q,.gaz.hub~`TTF,1,,the portfolio buys at the same hub the gas marks quote
+true,0,0,q,not any `from`to in cols fueltrade,1,,window columns are delivstart/delivend - `from` and `to` are qsql keywords and unusable in a where-clause
+true,0,0,q,all `delivstart`delivend in cols fueltrade,1,,fueltrade carries its delivery window
+true,0,0,q,`price in cols fueltrade,1,,a trade records what was paid - that is the whole point of the book
+true,0,0,q,`price in cols fuelmove,1,,fuelmove carries the WACOG stamped on a BURN
+true,0,0,q,`g~attr fueltrade`portfolio,1,,fueltrade portfolio carries the grouped attribute
+true,0,0,q,.t.eqf[.t.wacog[100 200f;30 36f;50f;30f];34.8f],1,,wacog is the cost of what REMAINS - 10200 less 1500 over 300 less 50 is 34.8 not the 34.0 of everything ever bought
+true,0,0,q,null .t.wacog[100f;30f;100f;30f],1,,an empty pool has no average cost - null not zero, which would read as free gas

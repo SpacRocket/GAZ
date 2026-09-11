@@ -85,16 +85,16 @@ fuel:{ rdb[](`.fuel.position; ::) }
 // column — that belongs to the pool, not to a unit.
 byplant:{ rdb[](`.bid.byplant; ::) }
 
-// Buy gas for a delivery window. MWh THERMAL at EUR/MWh thermal; `dto` is
+// Buy gas for a delivery window. MWh THERMAL at EUR/MWh thermal; `delivend` is
 // EXCLUSIVE. Remote for the same reason submit is: the book, the position and
 // the tickerplant publish all live on the RDB, and a second copy here would
 // drift from them.
 //
 // A trade struck for a future window sits on the book immediately and lands in
-// the pool at `dfrom`, so this is also how you set something up now and find
+// the pool at `delivstart`, so this is also how you set something up now and find
 // out later whether it was a good trade.
-buy:{[mwh;price;dfrom;dto]
-  rdb[](`.fuel.buy; "f"$mwh; "f"$price; "p"$dfrom; "p"$dto) }
+buy:{[mwh;price;delivstart;delivend]
+  rdb[](`.fuel.buy; "f"$mwh; "f"$price; "p"$delivstart; "p"$delivend) }
 
 // Buy at the current TTF mark, landing now. A fresh stack has an empty pool —
 // nothing buys gas on its own — so this is what has to happen before any offer

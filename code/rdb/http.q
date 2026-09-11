@@ -163,7 +163,7 @@
   if[0=count t; :"[]"];
   .j.j flip `time`ref`mwh`price`cost`from`to`landed!(
     .gz.ms t`time; string t`ref; .gaz.rnd[1;t`mwh]; .gaz.rnd[3;t`price];
-    .gaz.rnd[2;t`cost]; string t`dfrom; string t`dto; t`landed) };
+    .gaz.rnd[2;t`cost]; string t`delivstart; string t`delivend; t`landed) };
 
 // --- query strings -------------------------------------------------------
 // "gaz/grid?plant=Sloe&date=2026-09-08" -> `plant`date!("Sloe";"2026-09-08")
@@ -309,10 +309,10 @@
 // One endpoint, two modes, chosen by a field rather than two URLs — the panel
 // can only POST to one:
 //
-//   {"mwh":50000,"price":34.2,"dfrom":"2026-10-01","dto":"2026-11-01"}
+//   {"mwh":50000,"price":34.2,"delivstart":"2026-10-01","delivend":"2026-11-01"}
 //   {"mwh":50000,"mode":"spot"}     buy at the current TTF mark, landing now
 //
-// `price`, `dfrom` and `dto` are IGNORED in spot mode rather than rejected as
+// `price`, `delivstart` and `delivend` are IGNORED in spot mode rather than rejected as
 // extra: Business Forms posts every element whatever the mode, so they always
 // arrive. The alternative is a showIf hiding them, which is browser-side
 // JavaScript — untestable from here, and silently wrong when it breaks. Same
@@ -323,7 +323,13 @@
 // actually runs 06:00-06:00 CET. That simplification is fine while everything
 // here is UTC-naive; it stops being fine the moment a real gas contract is
 // priced against it.
+// A JSON field that is absent comes back as the general null (::), not an
+// empty string, and `count` on it is 1 rather than 0 — so normalise before
+// asking whether the user actually typed something.
+.gz.str:{[x] $[10h=type x; x; ""]};
+
 .gz.ts:{[x]
+  x:.gz.str x;
   if[0=count x; :0Np];
   // "D"$ first: a bare YYYY-MM-DD parses as a date and casts up to midnight.
   // "P"$ on a bare date yields a null, so trying the timestamp parse first
@@ -344,10 +350,21 @@
   if[not `price in key r; '"need price (or mode=spot to buy at the mark)"];
   px:"f"$r`price;
   if[null px; '"bad price"];
-  f:.gz.ts $[`dfrom in key r; r`dfrom; ""];
-  t:.gz.ts $[`dto in key r; r`dto; ""];
-  if[null f; '"need dfrom - YYYY-MM-DD or a full timestamp"];
-  if[null t; '"need dto - YYYY-MM-DD or a full timestamp, EXCLUSIVE"];
+
+  // An omitted window DEFAULTS to a day starting now rather than erroring.
+  // The form posts every element whatever the mode, so both dates always
+  // arrive and are usually empty; rejecting that would make the common case —
+  // "buy some gas at this price, now" — need two dates typed by hand. An
+  // explicitly BAD date is still rejected, so a typo is not silently turned
+  // into today.
+  f:.gz.ts $[`delivstart in key r; r`delivstart; ""];
+  if[null f;
+    if[0<count .gz.str r`delivstart; '"bad delivstart - expected YYYY-MM-DD or a full timestamp"];
+    f:.z.p];
+  t:.gz.ts $[`delivend in key r; r`delivend; ""];
+  if[null t;
+    if[0<count .gz.str r`delivend; '"bad delivend - expected YYYY-MM-DD or a full timestamp"];
+    t:f+0D24:00];
   .fuel.buy[q; px; f; t] };
 
 .gz.route2:{[m;p;body]
@@ -365,6 +382,8 @@
   // then wrapped a second time, putting the status line and headers inside the
   // body. One place decides what an HTTP response looks like.
   $[base like "gaz/store*";            @[{.gz.ok .gz.store[]};   ::;   {.gz.bad x}];
+    base like "gaz/plants*";           @[{.gz.ok .gz.plants[]};  ::;   {.gz.bad x}];
+    base like "gaz/trades*";           @[{.gz.ok .gz.trades[]};  ::;   {.gz.bad x}];
     base like "gaz/grid*";             @[{.gz.ok .gz.grid x};    a;    {.gz.bad x}];
     base like "gaz/bids*";             @[{.gz.ok .gz.bids[]};    ::;   {.gz.bad x}];
     w and base like "gaz/submit*";     @[{.gz.ok .j.j .gz.submit x};  body; {.gz.bad x}];

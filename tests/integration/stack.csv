@@ -10,3 +10,8 @@ true,0,0,q,.t.until[60;{0<.t.rows[`rdb;`carbon]}],1,,carbon reaches the rdb - sl
 true,0,0,q,0<count key hsym`$getenv`GAZ_TPLOG,1,,tickerplant is writing a recovery log
 true,0,0,q,not any null .t.ask[`rdb;"exec price from power"],1,,power prices are never null - negative IS valid, European day-ahead goes below zero on oversupply
 true,0,0,q,0=count .t.ask[`rdb;"select from power where null zone"],1,,no power row arrives without a bidding zone
+true,0,0,q,all `fueltrade`fuelmove in .t.ask[`rdb;"tables[]"],1,,the gas book and the commitment ledger both reach the rdb
+true,0,0,q,.t.poolshape[],1,,the pool position is one dictionary of scalars - one portfolio, not a row per plant
+true,0,0,q,.t.noplantavail[],1,,byplant carries no available or physical column - those belong to the pool
+true,0,0,q,.t.poolconsistent[],1,,physical is delivered less burnt and available is physical less reserved
+true,0,0,q,`TEST_UNIVERSAL_TTF~.t.ask[`rdb;".fuel.position[][`portfolio]"],1,,every plant draws on the one shared portfolio

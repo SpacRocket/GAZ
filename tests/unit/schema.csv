@@ -12,7 +12,7 @@ true,0,0,q,0=count power,1,,schema file defines empty tables only
 true,0,0,q,0=count gas,1,,schema file defines empty tables only
 true,0,0,q,0=count carbon,1,,schema file defines empty tables only
 true,0,0,q,cols[`bid]~`time`plant`zone`delivery`mw`price`ref`src,1,,bid column set
-true,0,0,q,cols[`fuelmove]~`time`plant`delivery`mwh`reason`ref`src,1,,fuelmove column set
+true,0,0,q,cols[`fuelmove]~`time`plant`delivery`mwh`price`reason`ref`src,1,,fuelmove column set - price is the WACOG stamped on a BURN
 true,0,0,q,(first exec t from meta[`bid] where c=`time)="p",1,,bid time is a timestamp - stamped when the offer was submitted
 true,0,0,q,`g~first exec a from meta[`bid] where c=`plant,1,,bid plant carries the grouped attribute
 true,0,0,q,0=count bid,1,,schema file defines empty tables only
@@ -21,3 +21,10 @@ true,0,0,q,`plant~first keys .gaz.plants,1,,plants is keyed on plant
 true,0,0,q,all .gaz.plants[;`efficiency] within 0.3 0.7,1,,efficiencies are plausible LHV ratios not HHV or percentages
 true,0,0,q,all 0<.gaz.plants[;`ef],1,,every plant declares a positive emissions factor
 true,0,0,q,all (`power;`price) in key .gaz.units,1,,units table declares the power price unit
+true,0,0,q,cols[`fueltrade]~`time`portfolio`hub`delivstart`delivend`mwh`price`ref`src,1,,fueltrade column set - the gas book
+true,0,0,q,0=count fueltrade,1,,schema file defines empty tables only
+true,0,0,q,(first exec t from meta[`fueltrade] where c=`delivstart)="p",1,,delivery window start is a timestamp
+true,0,0,q,(first exec t from meta[`fueltrade] where c=`delivend)="p",1,,delivery window end is a timestamp
+true,0,0,q,all "f"=exec t from meta[`fueltrade] where c in `mwh`price,1,,traded volume and price are floats
+true,0,0,q,`g~first exec a from meta[`fueltrade] where c=`portfolio,1,,fueltrade portfolio carries the grouped attribute
+true,0,0,q,all (`fueltrade;`price) in key .gaz.units,1,,units table declares what a trade price is denominated in

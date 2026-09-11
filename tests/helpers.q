@@ -20,6 +20,18 @@ emptydir:`$getenv[`GAZ_TESTS],"/.does-not-exist";
 // need an exact 1b, so never write `x=y` on floats in a test CSV.
 eqf:{[x;y] all (abs x-y) < 1e-9};
 
+// Weighted average cost of gas REMAINING in the pool, given delivered volumes
+// and prices and burnt volumes and prices. The arithmetic .fuel.position does
+// inline, extracted so a CSV row can assert it without a running stack.
+//
+// Value and volume both net the burns off: WACOG is the average cost of what
+// is LEFT, not of everything ever bought. A pool that is empty has no average
+// cost, so it is null rather than zero — zero would read as free gas.
+wacog:{[dmwh;dpx;bmwh;bpx]
+  v:(sum dmwh*dpx)-sum bmwh*bpx;
+  q:(sum dmwh)-sum bmwh;
+  $[q>1e-9; v%q; 0nf]};
+
 // --- integration helpers -------------------------------------------------
 // Only meaningful when the stack is up (make test-integration). Assertions
 // live here rather than inline in the CSVs because k4unit's `code` column is
@@ -29,6 +41,22 @@ conn:{[t] .servers.gethandlebytype[t;`any]};
 ask :{[t;x] conn[t] x};                       // eval a q string on a process of type t
 
 up      :{[t] not null conn t};
+
+// The pool position's shape, asserted through the RDB. A dictionary of
+// scalars, not a table: there is exactly ONE gas portfolio, so a row per plant
+// would be the tank model coming back in.
+poolshape:{[] `portfolio`hub`delivered`burnt`physical`reserved`available`wacog`forward~
+  key ask[`rdb;".fuel.position[]"]};
+
+// `available` belongs to the POOL and must never appear per plant — splitting
+// it between units needs an allocation rule nobody has chosen.
+noplantavail:{[] not any `available`physical`fuelcap in ask[`rdb;"cols .bid.byplant[]"]};
+
+// Every figure in the position is a plain sum over a subset, so they must
+// agree with each other at all times.
+poolconsistent:{[]
+  p:ask[`rdb;".fuel.position[]"];
+  (eqf[p`physical; p[`delivered]-p`burnt]) and eqf[p`available; p[`physical]-p`reserved]};
 hastables:{[t] all `power`gas`carbon in ask[t;"tables[]"]};
 rows    :{[t;tab] ask[t;"count ",string tab]};
 

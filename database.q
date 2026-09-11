@@ -77,10 +77,10 @@ bid:([]
 // spread against the market mark says whether the dispatch call was right, the
 // spread against what you actually PAID says whether the procurement call was.
 //
-// `dfrom`/`dto` is the delivery window, `dto` EXCLUSIVE, matching the
+// `delivstart`/`delivend` is the delivery window, `delivend` EXCLUSIVE, matching the
 // convention .gz.parseblocks uses for offer blocks. A trade struck today for
 // November delivery sits on the book from the moment it is struck and lands in
-// the pool at `dfrom` — which is the whole point of separating this from
+// the pool at `delivstart` — which is the whole point of separating this from
 // fuelmove. One row cannot be both "bought" and "in the pool" without the
 // position being wrong for everything in between.
 //
@@ -88,10 +88,12 @@ bid:([]
 // the start of a from-clause, so `where from<=x` is a syntax error rather than
 // a filter, and there is no way to quote your way out of it inside a select.
 // The same trap is already worked around in .gz.bids, which aliases to
-// `fromp`/`top` for exactly this reason.
+// `fromp`/`top` for exactly this reason. The names here are not a dodge around
+// that, though — `delivstart`/`delivend` say which window they bound, which
+// bare `from`/`to` never did.
 //
 // SIMPLIFICATION, and the one to revisit first: the volume lands in the pool
-// ALL AT ONCE at `dfrom`, rather than pro-rating evenly across the window. That
+// ALL AT ONCE at `delivstart`, rather than pro-rating evenly across the window. That
 // keeps every figure below a plain sum over a subset. A strip covering a month
 // therefore reads as fully delivered on day one.
 //
@@ -103,15 +105,15 @@ bid:([]
 // cost of burning it is the replacement cost, not what you happened to pay.
 
 fueltrade:([]
-  time     :`timestamp$();   // when the trade was struck
-  portfolio:`g#`symbol$();   // TEST_UNIVERSAL_TTF - one pool, every plant
-  hub      :`symbol$();      // TTF, matching gas.hub
-  dfrom    :`timestamp$();   // delivery window start - when it lands in the pool
-  dto      :`timestamp$();   // delivery window end, EXCLUSIVE
-  mwh      :`float$();       // MWh THERMAL bought over the window
-  price    :`float$();       // EUR/MWh THERMAL paid
-  ref      :`symbol$();      // trade id
-  src      :`symbol$() )     // MANUAL for a hand-entered trade
+  time      :`timestamp$();   // when the trade was struck
+  portfolio :`g#`symbol$();   // TEST_UNIVERSAL_TTF - one pool, every plant
+  hub       :`symbol$();      // TTF, matching gas.hub
+  delivstart:`timestamp$();   // window start - when it lands in the pool
+  delivend  :`timestamp$();   // window end, EXCLUSIVE
+  mwh       :`float$();       // MWh THERMAL bought over the window
+  price     :`float$();       // EUR/MWh THERMAL paid
+  ref       :`symbol$();      // trade id
+  src       :`symbol$() )     // MANUAL for a hand-entered trade
 
 // --- fuel commitment -----------------------------------------------------
 //
@@ -126,7 +128,7 @@ fueltrade:([]
 //
 // The pool position, every figure a clean sum over a subset:
 //
-//   delivered = sum fueltrade mwh where dfrom <= now
+//   delivered = sum fueltrade mwh where delivstart <= now
 //   burnt     = sum BURN
 //   physical  = delivered - burnt            gas the portfolio actually holds
 //   reserved  = sum RESERVE - sum RELEASE    earmarked against open offers

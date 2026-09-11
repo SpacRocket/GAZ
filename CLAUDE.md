@@ -79,6 +79,12 @@ rediscovered.
 - **`TORQPROCESSES` selects the deployment topology**, so `env.sh` must not set
   it unconditionally. It used to, which silently made the containers use
   `appconfig/process.csv` instead of `docker/process.csv`.
+- **Reserved words make silent or baffling column names.** `from` and `to` are
+  qsql KEYWORDS: a column named `from` parses as the start of a from-clause, so
+  `where from<=x` is a syntax error with no way to quote out of it — hence
+  `fueltrade.delivstart`/`delivend`, and `.gz.bids` aliasing to `fromp`/`top`. `value` is
+  a built-in and fails at table construction with `'assign`, as `gtime` does.
+  Check a candidate column name against `key\`.q` before committing to it.
 - **`set` takes a SYMBOL on the left.** `` `.gv.hist set x `` assigns;
   `.gv.hist set x` — the bare name, so the table's *value* — neither assigns
   nor errors. It silently does nothing, so the only symptom is a view that
@@ -98,27 +104,52 @@ rediscovered.
 - **The image copies `/app` at build time**, so a new or edited Python handler
   is not in a running container. `make backfill` against a stale image silently
   runs the old code — rebuild, or `docker cp` while iterating.
-- **A fresh stack has every plant at zero fuel, and that is correct.**
-  `physical` is `sum DELIVERY - sum BURN` over the `fuelmove` ledger, and no
-  feed ever publishes a DELIVERY row — `.bid.submit` only writes RESERVE and
-  RELEASE. Gas has to be booked in with `.bid.refuel[plant;mwh]` (or
-  `.bid.fill`/`.bid.fillall`), the `POST /gaz/refuel` and `POST /gaz/fillall`
-  endpoints, or the "Refuel storage" panel on the bidding dashboard, before an
-  offer of any size clears the reservation check. `fuelcap` in `plants.csv` is
-  the ceiling, not the level.
+- **There is no gas at a power station, and `plants.csv` must not imply there
+  is.** A CCGT takes gas off the transmission grid against a shipper portfolio;
+  it has no tank. So there is ONE pool — `.gaz.portfolio`, `TEST_UNIVERSAL_TTF`
+  — that every unit draws on, and `fuelmove.plant` says which unit committed
+  against it, not whose tank it came from. The reservation check in
+  `.bid.submit` is therefore fleet-wide: two plants offering the same gas
+  compete for it. An earlier version gave each plant a `fuelcap` and a private
+  stock level; that is a coal-stockpile model wearing a CCGT's name, and the
+  per-plant `available` it implied had no defensible definition.
+- **A fresh stack has an empty pool, and that is correct.** `physical` is
+  delivered less burnt, and nothing buys gas on its own. Buy it with
+  `.fuel.buyspot[mwh]` (at the current TTF mark), `.fuel.buy[mwh;price;delivstart;delivend]`
+  for a term trade, `POST /gaz/buy`, or the "Buy gas" panel — before an offer of
+  any size clears the reservation check.
+- **A trade is not an inventory movement.** `fueltrade` is the book, `fuelmove`
+  is the commitment ledger, and they are separate because a forward struck today
+  for November delivery is on the book immediately and in the pool only at
+  `delivstart`. One row cannot be both without the position being wrong in between.
+  `position` counts a trade as delivered once `delivstart` has passed — the volume
+  lands all at once rather than pro-rating across the window, which is the
+  simplification to revisit first.
+- **Bid on the market mark, book against WACOG.** Offering at the pool's average
+  cost is the classic error: gas already bought can be resold, so the cost of
+  burning it is the replacement cost, not what you happened to pay. The gap
+  between the two is the fuel P&L, and it is the reason `fueltrade.price` and
+  `gas.price` share a basis (EUR/MWh thermal, LHV).
+- **A BURN carries its cost; a RESERVE does not.** `fuelmove.price` is the pool's
+  WACOG stamped on at the instant of the burn, null on RESERVE and RELEASE.
+  Stamping rather than deriving keeps the cost basis a SUM: working it out later
+  would need the WACOG at that moment, which needs every burn before it.
 - **A row you publish is not visible to you until the STP echoes it.** The
-  tickerplant batches, so `.bid.state` still reports the pre-publish level for
-  a beat afterwards — and two refuels of one plant inside that window both read
-  it, both pass the fuelcap check and both land. Five requests in 40ms put the
-  live stack at 575001 MWh against a 267000 ceiling. `.bid.pending` holds a
-  delivery from publish until it is seen coming back (or a 30s TTL expires,
-  because EOD clears `fuelmove` and the echo may never arrive) and `state`
-  counts it as already in the tank. Anything else that publishes then re-reads
+  tickerplant batches, so `.fuel.position` still reports the pre-publish level
+  for a beat afterwards. When plants had tanks this let two refuels inside the
+  window both pass the ceiling check — five requests in 40ms put the live stack
+  at 575001 MWh against a 267000 ceiling. With a pool there is no ceiling, so
+  the exposure runs the other way: buy gas and immediately offer against it, and
+  the offer is rejected for fuel that is already paid for. `.fuel.pending` holds
+  a trade from publish until it is seen coming back (or a 30s TTL expires,
+  because EOD clears `fueltrade` and the echo may never arrive) and `position`
+  counts it as already in the pool. Anything else that publishes then re-reads
   has the same exposure.
 - **HTTP writes are POST-only** (`w:\`POST~m` in `.gz.route2`). Matching on the
   path alone let a GET — a browser prefetch, an uptime probe, the URL pasted
-  out of a comment — fill every tank. `/gaz/submit` was safe only by accident:
-  a GET carries no body, so its JSON parse failed first.
+  out of a comment — buy gas on the desk's behalf. `/gaz/submit` was safe only
+  by accident: a GET carries no body, so its JSON parse failed first, and
+  `/gaz/buy` in spot mode needs nothing but an `mwh`.
 - TorQ processes redirect stdout/stderr to timestamped files in `$KDBLOG`; the
   un-suffixed `out_<proc>.log` is a symlink that can point at a stale run.
   `ls -t data/logs/out_<proc>_*.log | head -1` when a log looks empty.
