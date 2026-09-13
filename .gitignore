@@ -19,3 +19,15 @@ __pycache__/
 *.log
 .DS_Store
 scratch**
+
+# Terraform working files. State can hold resource detail you don't want
+# public, and .terraform/ is downloaded provider binaries.
+#
+# .terraform.lock.hcl is deliberately NOT ignored: committing it pins the
+# provider versions so a later release cannot change what apply does.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+*hcl
