@@ -10,3 +10,8 @@ output "instance_hostname" {
   description = "Private DNS name of the EC2 instance."
   value       = aws_instance.kdb_box.private_dns
 }
+
+output "instance_id" {
+  description = "Instance ID for KDB, used for SSM"
+  value       = aws_instance.kdb_box.id
+}

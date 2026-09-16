@@ -20,12 +20,66 @@ resource "aws_instance" "kdb_box" {
   ami           = data.aws_ami.rocky.id
   instance_type = "t3.small"
 
-  vpc_security_group_ids = [module.vpc.default_security_group_id]
-  subnet_id              = module.vpc.private_subnets[0]
+  vpc_security_group_ids = [aws_security_group.kdb_box.id]
+  subnet_id              = module.vpc.public_subnets[0]
+
+  #   _netdev               do not attempt before the network is up
+  #   x-systemd.automount   mount on FIRST ACCESS to /mnt/fsx, not at boot
+  user_data = <<-EOF
+    #!/bin/bash
+    set -ex
+    dnf install -y https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
+    systemctl enable --now amazon-ssm-agent
+    dnf install -y nfs-utils
+    mkdir -p /mnt/fsx
+    echo "${aws_fsx_openzfs_file_system.fsx_kdb.dns_name}:/fsx /mnt/fsx nfs _netdev,x-systemd.automount,hard,noatime,nfsvers=4.2,nconnect=16,rsize=1048576,wsize=1048576 0 0" >> /etc/fstab
+    systemctl daemon-reload
+  EOF
+
+  user_data_replace_on_change = true
+  associate_public_ip_address = true
+  iam_instance_profile = aws_iam_instance_profile.ssm.name
+  depends_on = [aws_iam_role_policy_attachment.ssm]
 
   tags = {
     Name = "KDB"
   }
+}
+
+resource "aws_security_group" "kdb_box" {
+  name        = "kdb-box"
+  description = "SSH from the operator only"
+  vpc_id      = module.vpc.vpc_id
+
+  egress {
+    description = "All outbound - dnf mirrors and NFS to FSx"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+resource "aws_iam_role" "ssm" {
+  name = "kdb-box-ssm"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "ssm" {
+  role       = aws_iam_role.ssm.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_instance_profile" "ssm" {
+  name = "kdb-box-ssm"
+  role = aws_iam_role.ssm.name
 }
 
 module "vpc" {
@@ -39,7 +93,8 @@ module "vpc" {
   private_subnets = ["10.0.1.0/24", "10.0.2.0/24"]
   public_subnets  = ["10.0.101.0/24"]
 
-  enable_dns_hostnames = true
+  enable_dns_hostnames    = true
+  map_public_ip_on_launch = true
 }
 
 resource "aws_security_group" "fsx" {
