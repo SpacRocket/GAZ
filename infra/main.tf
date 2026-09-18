@@ -34,12 +34,14 @@ resource "aws_instance" "kdb_box" {
     mkdir -p /mnt/fsx
     echo "${aws_fsx_openzfs_file_system.fsx_kdb.dns_name}:/fsx /mnt/fsx nfs _netdev,x-systemd.automount,hard,noatime,nfsvers=4.2,nconnect=16,rsize=1048576,wsize=1048576 0 0" >> /etc/fstab
     systemctl daemon-reload
+    curl -sSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscliv2.zip
+    unzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install
   EOF
 
   user_data_replace_on_change = true
   associate_public_ip_address = true
-  iam_instance_profile = aws_iam_instance_profile.ssm.name
-  depends_on = [aws_iam_role_policy_attachment.ssm]
+  iam_instance_profile        = aws_iam_instance_profile.kdb_ec2.name
+  depends_on                  = [aws_iam_role_policy_attachment.ssm]
 
   tags = {
     Name = "KDB"
@@ -60,8 +62,8 @@ resource "aws_security_group" "kdb_box" {
   }
 }
 
-resource "aws_iam_role" "ssm" {
-  name = "kdb-box-ssm"
+resource "aws_iam_role" "kdb_ec2" {
+  name = "kdb-box-ec2"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -73,13 +75,13 @@ resource "aws_iam_role" "ssm" {
 }
 
 resource "aws_iam_role_policy_attachment" "ssm" {
-  role       = aws_iam_role.ssm.name
+  role       = aws_iam_role.kdb_ec2.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-resource "aws_iam_instance_profile" "ssm" {
-  name = "kdb-box-ssm"
-  role = aws_iam_role.ssm.name
+resource "aws_iam_instance_profile" "kdb_ec2" {
+  name = "kdb-box-ec2"
+  role = aws_iam_role.kdb_ec2.name
 }
 
 module "vpc" {
@@ -143,4 +145,42 @@ resource "aws_fsx_openzfs_file_system" "fsx_kdb" {
   tags = {
     name = "kdb-fsx"
   }
+}
+
+data "aws_caller_identity" "current" {}
+
+resource "aws_s3_bucket" "kdb_code" {
+  bucket = "gaz-kdb-code-${data.aws_caller_identity.current.account_id}"
+
+  force_destroy = true
+
+  tags = {
+    Name = "gaz-kdb-code"
+  }
+}
+
+resource "aws_iam_role_policy" "s3_code" {
+  name = "kdb-box-s3-code"
+  role = aws_iam_role.kdb_ec2.id   # same role the instance profile already wraps
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = aws_s3_bucket.kdb_code.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "${aws_s3_bucket.kdb_code.arn}/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:PutObject"]
+        Resource = "${aws_s3_bucket.kdb_code.arn}/artifacts/*"
+      }
+    ]
+  })
 }
