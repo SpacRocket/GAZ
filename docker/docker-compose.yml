@@ -28,18 +28,22 @@ x-gaz: &gaz
   environment: &gazenv
     TORQPROCESSES: /app/docker/process.csv
     KDBBASEPORT: 6000
-    GAZ_HDB: /fsx/hdb
-    GAZ_WDB: /mnt/wdb
-    GAZ_TPLOG: /mnt/tplog
-    GAZ_LOG: /var/log/gaz
+    # Comes from Dockerfile
+    ### GAZ_HDB
+    ### GAZ_WDB
+    ### GAZ_TPLOG
+    ### GAZ_LOG
     # Read from your shell, never baked into the image or committed. Source it
     # before bringing the stack up:
     #   set -a; . ~/.secrets; set +a
     #   docker compose -f docker/docker-compose.yml up -d
     ENTSOE_API_KEY: ${ENTSOE_API_KEY:-}
   volumes:
-    # Stands in for the FSx for OpenZFS mount. Shared by every reader.
-    - hdb:/fsx/hdb
+    # The real FSx for OpenZFS mount, bind-mounted from the host. Read-only:
+    # this anchor covers discovery and gateway, and `sort` overrides it with rw.
+    # A named volume here would put the HDB on the instance's root EBS disk and
+    # leave FSx provisioned but unused, which is what it did until now.
+    - /mnt/fsx/hdb:/fsx/hdb:ro
     # Your kc.lic / k4.lic — mounted, never baked into a layer.
     - ${QLIC:-${HOME}/Applications/q}:/etc/kdb:ro
   restart: unless-stopped
@@ -79,7 +83,7 @@ services:
       - "python3 /app/code/tick/sim_carbon.py"
     depends_on: [discovery]
     volumes:
-      - hdb:/fsx/hdb
+      - /mnt/fsx/hdb:/fsx/hdb:ro
       - ${QLIC:-${HOME}/Applications/q}:/etc/kdb:ro
       # The recovery log gets its own volume: local block storage, never the
       # shared filesystem. In AWS this is an EBS io2/gp3 volume.
@@ -101,7 +105,7 @@ services:
     ports:
       - "6002:6002"
     volumes:
-      - hdb:/fsx/hdb
+      - /mnt/fsx/hdb:/fsx/hdb:ro
       - ${QLIC:-${HOME}/Applications/q}:/etc/kdb:ro
       - tplog:/mnt/tplog        # needed to replay the log on restart
 
@@ -111,7 +115,7 @@ services:
     command: ["run", "wdb1"]
     depends_on: [stp]
     volumes:
-      - hdb:/fsx/hdb
+      - /mnt/fsx/hdb:/fsx/hdb:ro
       - ${QLIC:-${HOME}/Applications/q}:/etc/kdb:ro
       - tplog:/mnt/tplog
       - wdb:/mnt/wdb
@@ -122,10 +126,11 @@ services:
     command: ["run", "sort1"]
     depends_on: [wdb]
     volumes:
-      # The only service with the HDB mounted read-write. Every reader below
+      # The only service with the HDB mounted read-write. Every other service
       # gets :ro, which is the container-level expression of the single-writer
-      # rule the shared-filesystem layout depends on.
-      - hdb:/fsx/hdb
+      # rule the shared-filesystem layout depends on -- enforced by the mount,
+      # so a stray write elsewhere fails rather than corrupting the partition.
+      - /mnt/fsx/hdb:/fsx/hdb
       - ${QLIC:-${HOME}/Applications/q}:/etc/kdb:ro
       - wdb:/mnt/wdb
       # The sort subscribes to the tickerplant and replays its logs on startup,
@@ -140,7 +145,7 @@ services:
     command: ["run", "hdb1"]
     depends_on: [discovery]
     volumes:
-      - hdb:/fsx/hdb:ro
+      - /mnt/fsx/hdb:/fsx/hdb:ro
       - ${QLIC:-${HOME}/Applications/q}:/etc/kdb:ro
 
   hdb2:
@@ -211,7 +216,9 @@ services:
     restart: unless-stopped
 
 volumes:
-  hdb:
+  # No `hdb` here on purpose: it is a bind mount to FSx, not a local volume.
+  # tplog/wdb/state stay local -- the tickerplant log must never live on the
+  # shared filesystem.
   wdb:
   tplog:
   state:

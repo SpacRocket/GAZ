@@ -23,30 +23,17 @@ resource "aws_instance" "kdb_box" {
   vpc_security_group_ids = [aws_security_group.kdb_box.id]
   subnet_id              = module.vpc.public_subnets[0]
 
-  #   _netdev               do not attempt before the network is up
-  #   x-systemd.automount   mount on FIRST ACCESS to /mnt/fsx, not at boot
-  user_data = <<-EOF
-    #!/bin/bash
-    set -ex
-
-    # SSM
-    dnf install -y https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
-    systemctl enable --now amazon-ssm-agent
-    # AWS
-    curl -sSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscliv2.zip
-    unzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install
-    # FSX 
-    dnf install -y nfs-utils unzip
-    mkdir -p /mnt/fsx
-    echo "${aws_fsx_openzfs_file_system.fsx_kdb.dns_name}:/fsx /mnt/fsx nfs _netdev,x-systemd.automount,hard,noatime,nfsvers=4.2,nconnect=16,rsize=1048576,wsize=1048576 0 0" >> /etc/fstab
-    systemctl daemon-reload
-    # DOCKER
-    sudo dnf install -y dnf-plugins-core
-    sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo
-    sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-    sudo systemctl enable --now docker
-    sudo usermod -aG docker rocky && newgrp docker
-  EOF
+  # Provisioning lives in user_data.sh, not inline: it now writes a systemd
+  # unit and two heredocs, which a nested Terraform heredoc renders unreadable.
+  # Referencing the bucket and the parameter here also gives Terraform the
+  # implicit dependency edges -- the instance cannot boot before either exists.
+  user_data = templatefile("${path.module}/user_data.sh", {
+    region       = data.aws_region.current.name
+    fsx_dns      = aws_fsx_openzfs_file_system.fsx_kdb.dns_name
+    bucket       = aws_s3_bucket.kdb_code.bucket
+    lic_param    = aws_ssm_parameter.kx_lic.name
+    entsoe_param = aws_ssm_parameter.entsoe_key.name
+  })
 
   user_data_replace_on_change = true
   associate_public_ip_address = true
@@ -152,6 +139,20 @@ resource "aws_fsx_openzfs_file_system" "fsx_kdb" {
   # from the first apply or destroy leaves a backup quietly billing.
   automatic_backup_retention_days = 0
   skip_final_backup               = true
+
+  # FSx for OpenZFS squashes root by default: a directory the instance creates
+  # as root lands owned by 65534:65534 and chown fails EPERM, so the containers
+  # (uid 6000, see docker/Dockerfile) could never write the HDB. Lifting it lets
+  # gaz-bootstrap set ownership once. Scoped by aws_security_group.fsx, which
+  # admits NFS only from inside the VPC.
+  root_volume_configuration {
+    nfs_exports {
+      client_configurations {
+        clients = "*"
+        options = ["rw", "crossmnt", "no_root_squash"]
+      }
+    }
+  }
   tags = {
     name = "kdb-fsx"
   }
@@ -196,10 +197,44 @@ resource "aws_iam_role_policy" "s3_code" {
   })
 }
 
+# kdb+ licence. Needed as KX_B64_LIC at image build and mounted at /etc/kdb at
+# runtime; gaz-bootstrap fetches it at boot. Written out of band, once:
+#
+#   aws ssm put-parameter --name /gaz/kx/kc_lic_b64 --type SecureString \
+#     --overwrite --value "$(base64 < ~/Applications/q/kc.lic | tr -d '\n')"
+#
+# Keeping the value out of the config keeps it out of GIT, not out of STATE:
+# .value is `computed`, so refresh reads it back decrypted into tfstate. Fine
+# here (state is local and gitignored) but it is the reason this is not a
+# general-purpose secret store. ignore_changes takes attribute NAMES, not a
+# bool, and stops the next apply reverting the real licence to the placeholder.
+#
+# No IAM policy needed: aws/ssm is an AWS-managed key whose key policy already
+# allows Decrypt to the account via kms:ViaService=ssm, and a resource-policy
+# allow suffices same-account. A customer-managed key would need one.
 resource "aws_ssm_parameter" "kx_lic" {
   name        = "/gaz/kx/kc_lic_b64"
   description = "base64 of kc.lic. Real value written out of band - see main.tf."
   type        = "SecureString" # encrypted under the account's aws/ssm key
+  value       = "PLACEHOLDER"
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+# ENTSO-E API key. Same shape and same trade-off as the licence above.
+#
+#   aws ssm put-parameter --name /gaz/entsoe/api_key --type SecureString \
+#     --overwrite --value "$ENTSOE_API_KEY"
+#
+# Unlike the licence this one is OPTIONAL at boot -- the stack comes up without
+# it and only the feed is dead, so gaz-bootstrap tolerates a placeholder here
+# rather than refusing to start.
+resource "aws_ssm_parameter" "entsoe_key" {
+  name        = "/gaz/entsoe/api_key"
+  description = "ENTSO-E API key. Real value written out of band - see main.tf."
+  type        = "SecureString"
   value       = "PLACEHOLDER"
 
   lifecycle {
