@@ -34,3 +34,8 @@ output "code_bucket_artifacts_uri" {
   description = "The ONLY prefix the instance role may write to — s3:PutObject is scoped to artifacts/*."
   value       = "s3://${aws_s3_bucket.kdb_code.bucket}/artifacts"
 }
+
+output "kx_lic_param" {
+  description = "SSM SecureString holding base64(kc.lic). The box fetches it; Terraform never holds its value."
+  value       = aws_ssm_parameter.kx_lic.name
+}

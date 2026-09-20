@@ -55,3 +55,6 @@ tar --exclude-vcs \
 
 echo "uploaded. On the box:"
 echo "  aws s3 cp $DEST - | tar -xz -C ~/gaz"
+
+$GAZ_ROOT/infra#   aws ssm put-parameter --name /gaz/kx/kc_lic_b64 --type SecureString \
+     --overwrite --value "$(base64 < ~/Applications/q/kc.lic | tr -d '\n')"

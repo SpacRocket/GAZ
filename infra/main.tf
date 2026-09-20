@@ -163,7 +163,7 @@ data "aws_region" "current" {}
 resource "aws_s3_bucket" "kdb_code" {
   bucket = "gaz-kdb-code-${data.aws_caller_identity.current.account_id}"
 
-  force_destroy = true
+  force_destroy = false
 
   tags = {
     Name = "gaz-kdb-code"
@@ -172,7 +172,7 @@ resource "aws_s3_bucket" "kdb_code" {
 
 resource "aws_iam_role_policy" "s3_code" {
   name = "kdb-box-s3-code"
-  role = aws_iam_role.kdb_ec2.id   # same role the instance profile already wraps
+  role = aws_iam_role.kdb_ec2.id # same role the instance profile already wraps
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -194,4 +194,15 @@ resource "aws_iam_role_policy" "s3_code" {
       }
     ]
   })
+}
+
+resource "aws_ssm_parameter" "kx_lic" {
+  name        = "/gaz/kx/kc_lic_b64"
+  description = "base64 of kc.lic. Real value written out of band - see main.tf."
+  type        = "SecureString" # encrypted under the account's aws/ssm key
+  value       = "PLACEHOLDER"
+
+  lifecycle {
+    ignore_changes = [value]
+  }
 }
