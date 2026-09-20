@@ -18,7 +18,7 @@ data "aws_ami" "rocky" {
 
 resource "aws_instance" "kdb_box" {
   ami           = data.aws_ami.rocky.id
-  instance_type = "t3.small"
+  instance_type = "t3.medium"
 
   vpc_security_group_ids = [aws_security_group.kdb_box.id]
   subnet_id              = module.vpc.public_subnets[0]
@@ -28,14 +28,24 @@ resource "aws_instance" "kdb_box" {
   user_data = <<-EOF
     #!/bin/bash
     set -ex
+
+    # SSM
     dnf install -y https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
     systemctl enable --now amazon-ssm-agent
-    dnf install -y nfs-utils
+    # AWS
+    curl -sSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscliv2.zip
+    unzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install
+    # FSX 
+    dnf install -y nfs-utils unzip
     mkdir -p /mnt/fsx
     echo "${aws_fsx_openzfs_file_system.fsx_kdb.dns_name}:/fsx /mnt/fsx nfs _netdev,x-systemd.automount,hard,noatime,nfsvers=4.2,nconnect=16,rsize=1048576,wsize=1048576 0 0" >> /etc/fstab
     systemctl daemon-reload
-    curl -sSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscliv2.zip
-    unzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install
+    # DOCKER
+    sudo dnf install -y dnf-plugins-core
+    sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo
+    sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+    sudo systemctl enable --now docker
+    sudo usermod -aG docker rocky && newgrp docker
   EOF
 
   user_data_replace_on_change = true
@@ -148,6 +158,7 @@ resource "aws_fsx_openzfs_file_system" "fsx_kdb" {
 }
 
 data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
 
 resource "aws_s3_bucket" "kdb_code" {
   bucket = "gaz-kdb-code-${data.aws_caller_identity.current.account_id}"
